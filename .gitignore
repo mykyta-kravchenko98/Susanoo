@@ -20,6 +20,7 @@ terraform.rc
 *.dylib
 bin/
 vendor/
+/cmd/*/bootstrap
 
 # OS / editor
 .DS_Store
