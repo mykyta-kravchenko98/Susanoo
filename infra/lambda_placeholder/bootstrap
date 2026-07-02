@@ -1,0 +1,3 @@
+This file is a placeholder. The real Go binary is deployed separately via
+GitHub Actions (`aws lambda update-function-code`), not through Terraform.
+See infra/lambda.tf — lifecycle.ignore_changes on filename/source_code_hash.

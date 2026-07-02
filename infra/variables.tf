@@ -8,3 +8,8 @@ variable "environment" {
   type        = string
   default     = "prod"
 }
+
+variable "aws_region" {
+  type        = string
+  default     = "eu-central-1"
+}

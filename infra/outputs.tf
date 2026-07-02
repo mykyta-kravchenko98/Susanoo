@@ -15,3 +15,23 @@ output "letters_table_name" {
 output "letters_table_arn" {
   value = aws_dynamodb_table.letters.arn
 }
+
+output "webhook_url" {
+  value       = "${aws_apigatewayv2_api.telegram_webhook.api_endpoint}/webhook"
+}
+
+output "sqs_queue_url" {
+  value = aws_sqs_queue.updates.url
+}
+
+output "sessions_table_name" {
+  value = aws_dynamodb_table.sessions.name
+}
+
+output "telegram_bot_token_secret_arn" {
+  value = aws_secretsmanager_secret.telegram_bot_token.arn
+}
+
+output "anthropic_api_key_secret_arn" {
+  value = aws_secretsmanager_secret.anthropic_api_key.arn
+}
