@@ -16,6 +16,9 @@ const (
 		"send at least one before pressing \"Done\"."
 
 	ProcessingStarted = "Processing the letter, this may take a few seconds…"
+
+	ProcessingFailed = "Something went wrong while processing the letter. " +
+		"Please try pressing \"Done\" again in a moment."
 )
 
 func PhotoAdded(pageCount int) string {
