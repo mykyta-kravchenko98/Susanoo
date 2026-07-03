@@ -10,6 +10,8 @@ const (
 
 	ButtonDone = "✅ Done"
 
+	ButtonStartOver = "🔄 Start over"
+
 	AddMorePrompt = "Send the next photo."
 
 	NoPhotosYet = "I don't see any photos in the current session — " +

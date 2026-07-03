@@ -127,6 +127,7 @@ func handlePhoto(ctx context.Context, msg *telegram.Message) error {
 	return tgClient.SendMessage(ctx, msg.Chat.ID, text,
 		telegram.InlineButton{Text: messages.ButtonAddPage, CallbackData: callbackAddMore},
 		telegram.InlineButton{Text: messages.ButtonDone, CallbackData: callbackDone},
+		telegram.InlineButton{Text: messages.ButtonStartOver, CallbackData: callbackRestart},
 	)
 }
 
@@ -140,6 +141,12 @@ func handleCallback(ctx context.Context, cb *telegram.CallbackQuery) error {
 	switch cb.Data {
 	case callbackAddMore:
 		return tgClient.SendMessage(ctx, chatID, messages.AddMorePrompt)
+
+	case callbackRestart:
+		if err := sessionStore.Clear(ctx, chatID); err != nil {
+			return fmt.Errorf("clear session on restart: %w", err)
+		}
+		return tgClient.SendMessage(ctx, chatID, messages.SessionCleared)
 
 	case callbackDone:
 		sess, err := sessionStore.Get(ctx, chatID)
