@@ -26,6 +26,7 @@ import (
 const (
 	callbackAddMore = "add_more"
 	callbackDone    = "done"
+	callbackRestart = "restart"
 )
 
 var (
