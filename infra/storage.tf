@@ -35,6 +35,26 @@ resource "aws_s3_bucket_public_access_block" "documents" {
   restrict_public_buckets = true
 }
 
+resource "aws_s3_bucket_lifecycle_configuration" "documents" {
+  bucket = aws_s3_bucket.documents.id
+
+  rule {
+    id     = "expire-raw-photos"
+    status = "Enabled"
+
+    filter {
+      prefix = "raw/"
+    }
+
+    expiration {
+      days = 7
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 7
+    }
+  }
+}
 
 # ---------------------------------------------------------------------------
 # DynamoDB - letters metadata
