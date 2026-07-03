@@ -88,6 +88,18 @@ resource "aws_dynamodb_table" "letters" {
     projection_type = "ALL"
   }
 
+  attribute {
+    name = "chat_id"
+    type = "N"
+  }
+
+  global_secondary_index {
+    name            = "chat_id-received_date-index"
+    hash_key        = "chat_id"
+    range_key       = "received_date"
+    projection_type = "ALL"
+  }
+
   # prevent unexpected delete
   point_in_time_recovery {
     enabled = true
