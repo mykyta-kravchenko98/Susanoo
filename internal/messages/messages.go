@@ -21,6 +21,8 @@ const (
 
 	ProcessingFailed = "Something went wrong while processing the letter. " +
 		"Please try pressing \"Done\" again in a moment."
+
+	SessionCleared = "Session cleared. Send a new photo to start again."
 )
 
 func PhotoAdded(pageCount int) string {
