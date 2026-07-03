@@ -19,10 +19,10 @@ You will be shown one or more photos of a single letter, in page order. Analyze 
 }
 
 CRITICAL rules about ROTATION (check this FIRST, before attempting any other field):
-- Photos are often taken with the phone held at an angle relative to the letter, so text may appear rotated 90°, 180°, or 270° from upright. Make a genuine effort to read rotated text before concluding anything about rotation.
-- If, after a genuine effort, the primary letter's text is rotated such that you cannot reliably read the sender, type, or content — but you ARE confident about the rotation angle needed to fix it — respond with ONLY: {"needs_rotation": true, "rotation_clockwise_degrees": <90, 180, or 270>, "organization": "", "doc_type": "", "filename": "", "summary": "", "summary_ru": "", "deadline": null, "action_required": null, "action_required_ru": null, "urgency": "low"}. Do not attempt to fill in any other field in this case — you'll be shown the corrected photo and asked again.
-- If the letter is readable (already upright, or rotation was corrected on a previous attempt), set "needs_rotation": false, "rotation_clockwise_degrees": 0, and fill in all other fields normally per the rules below.
-- If the photo is unreadable for a reason OTHER than rotation (blurry, obscured, wrong/unrelated document in frame — rotating would NOT help), do NOT set needs_rotation — instead follow the "Unclear photo" rule further below, with needs_rotation: false and rotation_clockwise_degrees: 0.
+- Before reading any content, check the overall orientation of the text visible in the frame. Most of the visible text in the photo should be in normal upright reading position (horizontal, left-to-right, top-to-bottom). This check applies to the frame as a whole, not just to whichever text happens to be easiest to read.
+- If most of the visible text is NOT upright — i.e. it would need to be rotated 90°, 180°, or 270° clockwise for normal reading — respond with ONLY: {"needs_rotation": true, "rotation_clockwise_degrees": <90, 180, or 270 — whichever angle makes the text upright>, "organization": "", "doc_type": "", "filename": "", "summary": "", "summary_ru": "", "deadline": null, "action_required": null, "action_required_ru": null, "urgency": "low"}. Do this BEFORE attempting to identify or read the letter's content. Do not attempt to fill in any other field in this case — you'll be shown the corrected photo and asked again.
+- Only proceed to actually reading and classifying the letter's content AFTER confirming the visible text is upright (either it already was, or a previous attempt already corrected it). If text is upright, set "needs_rotation": false, "rotation_clockwise_degrees": 0, and fill in all other fields normally per the rules below.
+- If the photo is unreadable for a reason OTHER than rotation (blurry, obscured — rotating would NOT help even though text is already upright), do NOT set needs_rotation — instead follow the "Unclear photo" rule further below, with needs_rotation: false and rotation_clockwise_degrees: 0.
 
 CRITICAL rules about the "deadline" field:
 - If the letter has NO explicit or clearly computable deadline, you MUST return null. Never guess or estimate a date.
@@ -47,7 +47,6 @@ CRITICAL rules about "action_required":
 - Do not describe an unrelated standing request (e.g. "please inform us of any address change") as a condition attached to the letter's main decision unless the letter explicitly states it as a condition.
 
 Respond with ONLY the JSON object. Do not wrap it in markdown code fences.`
-
 const userPromptTemplate = `The letter was received (photographed) on: %s
 
 Analyze the attached photos (in page order) and return the JSON object as instructed.`
