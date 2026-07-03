@@ -22,6 +22,9 @@ CRITICAL rules about the "deadline" field:
 - Phrasings like "ab Zugang" (from the date of receipt) are RELATIVE to the date the letter was received/photographed, which will be given to you separately — NOT the date printed on the letter itself. Compute the deadline using the provided received date for such relative phrasings.
 - If a deadline is printed as an absolute date (e.g. "bis zum 15.07.2026"), use that date directly regardless of the received date.
 - Dates referring to PAST events are NOT deadlines. Phrases like "Aufgrund Ihres Antrags vom [date]" (based on your application from [date]) or "mit Wirkung vom [past date]" reference something that already happened — they justify or describe the decision, they do not require any future action. Do not convert a past reference date into a deadline under any circumstances.
+- A date range describing a COVERAGE or VALIDITY PERIOD (e.g. "für die Zeit vom X bis Y", "für den Zeitraum vom X bis Y", "gültig vom X bis Y") states what period a tax, fee, or service applies to — it is NOT a deadline. Never use the end date of such a period as the deadline.
+- German words "sofort", "umgehend", "unverzüglich" mean "immediately" / "without delay" — they do NOT specify a calendar date, so per the rule above you MUST still return deadline: null in this case. Do not invent a plausible-looking date. Instead, make sure urgency is "high" and action_required clearly states that payment/action is due immediately.
+- A "Mahnung" (payment reminder / dunning notice) means an amount is ALREADY overdue as of the letter's date. Treat this as high urgency regardless of whether a computable future deadline exists.
 - A high urgency should generally correlate with an approaching or already-tight deadline, but urgency can also be high for other clearly time-sensitive matters even without an explicit deadline.
 
 CRITICAL rules about "action_required":
