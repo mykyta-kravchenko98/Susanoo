@@ -12,8 +12,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.104.2
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.42.5
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.44.2
+	github.com/disintegration/imaging v1.6.2
 	github.com/pdfcpu/pdfcpu v0.13.0
-	golang.org/x/image v0.43.0
 )
 
 require (
@@ -51,6 +51,7 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	golang.org/x/crypto v0.52.0 // indirect
+	golang.org/x/image v0.43.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
