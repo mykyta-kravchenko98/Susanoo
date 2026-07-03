@@ -28,19 +28,21 @@ const (
 	SessionCleared = "Session cleared. Send a new photo to start again."
 
 	ButtonSave = "✅ Save"
- 
+
 	ButtonFix = "✏️ Fix"
 
- 	// RequestFixPrompt is sent after clicking ButtonFix. The MVP does not support
+	SavingStarted = "Saving…"
+	// RequestFixPrompt is sent after clicking ButtonFix. The MVP does not support
 	// editing individual fields—it is easier to ask for the letter to be re-photographed.
 	RequestFixPrompt = "No problem — please resend the photos of the letter and I'll try again."
- 
+
 	// NothingToConfirm is sent if the user clicked Save, but the session is no longer
 	// in the state awaiting confirmation (e.g., it expired due to TTL).
 	NothingToConfirm = "There's nothing to confirm right now — the session may have expired. " +
 		"Please send the photos again."
- 
+
 	LetterSaved = "Saved to the archive. ✅"
+	SaveFailed  = "Something went wrong while saving. Please press \"🔄 Start over\" and resend the photos."
 )
 
 func PhotoAdded(pageCount int) string {
@@ -49,22 +51,22 @@ func PhotoAdded(pageCount int) string {
 
 func ClassificationPreview(organization, docType, summaryRU string, actionRequiredRU, deadline *string, urgency string) string {
 	var b strings.Builder
- 
+
 	fmt.Fprintf(&b, "📄 %s\n", docType)
 	fmt.Fprintf(&b, "From: %s\n\n", organization)
 	fmt.Fprintf(&b, "%s\n\n", summaryRU)
- 
+
 	if deadline != nil {
 		fmt.Fprintf(&b, "⏰ Deadline: %s\n", *deadline)
 	} else {
 		b.WriteString("⏰ Deadline: not detected\n")
 	}
- 
+
 	if actionRequiredRU != nil {
 		fmt.Fprintf(&b, "☑️ Action required: %s\n", *actionRequiredRU)
 	}
- 
+
 	fmt.Fprintf(&b, "\nUrgency: %s", strings.ToUpper(urgency))
- 
+
 	return b.String()
 }
