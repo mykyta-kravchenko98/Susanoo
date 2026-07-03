@@ -1,0 +1,35 @@
+name: Go Build
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/go-build.yml"
+
+jobs:
+  build:
+    name: Build and vet
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - name: Go vet
+        run: go vet ./...
+
+      - name: Build webhook (linux/arm64)
+        run: GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/webhook
+
+      - name: Build processor (linux/arm64)
+        run: GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/processor
