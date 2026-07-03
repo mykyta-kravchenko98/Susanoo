@@ -10,14 +10,14 @@ import (
 	"regexp"
 	"strings"
 	"time"
- 
+
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
- 
+
 	"github.com/mykyta-kravchenko98/Susanoo/internal/imaging"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/letters"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/llm"
@@ -29,20 +29,20 @@ import (
 )
 
 const (
-	callbackAddMore    = "add_more"
-	callbackDone       = "done"
-	callbackRestart    = "restart"
+	callbackAddMore     = "add_more"
+	callbackDone        = "done"
+	callbackRestart     = "restart"
 	callbackConfirmSave = "confirm_save"
 	callbackRequestFix  = "request_fix"
 )
 
 var (
-	logger        *slog.Logger
-	sessionStore  *session.Store
-	docStore      *storage.DocumentStore
-	lettersStore  *letters.Store
-	llmClient     *llm.Client
-	tgClient      *telegram.Client
+	logger       *slog.Logger
+	sessionStore *session.Store
+	docStore     *storage.DocumentStore
+	lettersStore *letters.Store
+	llmClient    *llm.Client
+	tgClient     *telegram.Client
 )
 
 func init() {
@@ -71,7 +71,7 @@ func init() {
 		panic(fmt.Sprintf("failed to fetch telegram token: %v", err))
 	}
 	tgClient = telegram.NewClient(tgToken)
- 
+
 	anthropicKey, err := fetchSecret(ctx, smClient, mustEnv("ANTHROPIC_KEY_SECRET"))
 	if err != nil {
 		panic(fmt.Sprintf("failed to fetch anthropic api key: %v", err))
@@ -199,13 +199,13 @@ func handleCallback(ctx context.Context, cb *telegram.CallbackQuery) error {
 
 	case callbackConfirmSave:
 		return handleConfirmSave(ctx, chatID)
- 
+
 	case callbackRequestFix:
 		if err := sessionStore.Clear(ctx, chatID); err != nil {
 			return fmt.Errorf("clear session on fix: %w", err)
 		}
 		return tgClient.SendMessage(ctx, chatID, messages.RequestFixPrompt)
- 
+
 	default:
 		logger.WarnContext(ctx, "unknown callback data", slog.String("data", cb.Data))
 		return nil
@@ -214,43 +214,43 @@ func handleCallback(ctx context.Context, cb *telegram.CallbackQuery) error {
 
 func processDocument(ctx context.Context, chatID int64, photoIDs []string) error {
 	receivedAt := time.Now().UTC()
- 
+
 	downsampled := make([][]byte, 0, len(photoIDs))
- 
+
 	for i, fileID := range photoIDs {
 		filePath, err := tgClient.GetFilePath(ctx, fileID)
 		if err != nil {
 			return fmt.Errorf("get file path for photo %d: %w", i, err)
 		}
- 
+
 		raw, err := tgClient.DownloadFile(ctx, filePath)
 		if err != nil {
 			return fmt.Errorf("download photo %d: %w", i, err)
 		}
- 
+
 		rawKey := fmt.Sprintf("raw/%d/%s_%d.jpg", chatID, receivedAt.Format("20060102T150405"), i)
 		if err := docStore.PutRaw(ctx, rawKey, raw); err != nil {
 			logger.WarnContext(ctx, "failed to store raw photo, continuing anyway",
 				slog.String("error", err.Error()), slog.Int("photo_index", i))
 		}
- 
+
 		small, err := imaging.Downsample(raw)
 		if err != nil {
 			return fmt.Errorf("downsample photo %d: %w", i, err)
 		}
 		downsampled = append(downsampled, small)
 	}
- 
+
 	pdfBytes, err := pdfbuilder.BuildFromJPEGs(downsampled)
 	if err != nil {
 		return fmt.Errorf("build pdf: %w", err)
 	}
- 
-	pdfKey := fmt.Sprintf("Unsorted/%d/%s.pdf", receivedAt.Year(), receivedAt.Format("20060102T150405"))
+
+	pdfKey := fmt.Sprintf("Unsorted/%d/%d/%s.pdf", chatID, receivedAt.Year(), receivedAt.Format("20060102T150405"))
 	if err := docStore.PutPDF(ctx, pdfKey, pdfBytes); err != nil {
 		return fmt.Errorf("store pdf: %w", err)
 	}
- 
+
 	fields, err := llmClient.ClassifyLetter(ctx, downsampled, receivedAt.Format("2006-01-02"))
 	if err != nil {
 		return fmt.Errorf("classify letter (pdf already saved at %s): %w", pdfKey, err)
@@ -272,8 +272,18 @@ func processDocument(ctx context.Context, chatID int64, photoIDs []string) error
 		slog.String("organization", fields.Organization),
 	)
 
+	isOverdue := false
+	if fields.Deadline != nil {
+		if parsed, err := time.Parse("2006-01-02", *fields.Deadline); err == nil {
+			isOverdue = parsed.Before(time.Now().UTC().Truncate(24 * time.Hour))
+		} else {
+			logger.WarnContext(ctx, "could not parse deadline date, skipping overdue check",
+				slog.String("deadline", *fields.Deadline), slog.String("error", err.Error()))
+		}
+	}
+
 	return tgClient.SendMessage(ctx, chatID, messages.ClassificationPreview(
-		fields.Organization, fields.DocType, fields.SummaryRU, fields.ActionRequiredRU, fields.Deadline, fields.Urgency,
+		fields.Organization, fields.DocType, fields.SummaryRU, fields.ActionRequiredRU, fields.Deadline, fields.Urgency, isOverdue,
 	),
 		telegram.InlineButton{Text: messages.ButtonSave, CallbackData: callbackConfirmSave},
 		telegram.InlineButton{Text: messages.ButtonFix, CallbackData: callbackRequestFix},
@@ -288,33 +298,33 @@ func handleConfirmSave(ctx context.Context, chatID int64) error {
 		}
 		return fmt.Errorf("mark session saving: %w", err)
 	}
- 
+
 	if err := tgClient.SendMessage(ctx, chatID, messages.SavingStarted); err != nil {
 		logger.WarnContext(ctx, "failed to send saving notice", slog.String("error", err.Error()))
 	}
- 
+
 	var fields llm.ExtractedFields
 	if err := json.Unmarshal([]byte(sess.Classification), &fields); err != nil {
 		return fmt.Errorf("unmarshal stored classification: %w", err)
 	}
- 
+
 	now := time.Now().UTC()
 	safeOrg := sanitizeForKey(fields.Organization)
 	safeFilename := sanitizeForKey(fields.Filename)
 	finalKey := fmt.Sprintf("%d/%s/%d/%02d/%s.pdf", chatID, safeOrg, now.Year(), now.Month(), safeFilename)
- 
+
 	if err := docStore.Move(ctx, sess.PDFKey, finalKey); err != nil {
 		if sendErr := tgClient.SendMessage(ctx, chatID, messages.SaveFailed); sendErr != nil {
 			logger.WarnContext(ctx, "failed to send save-failed notice", slog.String("error", sendErr.Error()))
 		}
 		return fmt.Errorf("move pdf to final location: %w", err)
 	}
- 
+
 	letterID, err := letters.NewLetterID()
 	if err != nil {
 		return fmt.Errorf("generate letter id: %w", err)
 	}
- 
+
 	letter := letters.Letter{
 		LetterID:     letterID,
 		ChatID:       chatID,
@@ -337,25 +347,24 @@ func handleConfirmSave(ctx context.Context, chatID int64) error {
 	if fields.ActionRequiredRU != nil {
 		letter.ActionRequiredRU = *fields.ActionRequiredRU
 	}
- 
+
 	if err := lettersStore.Put(ctx, letter); err != nil {
 		return fmt.Errorf("save letter metadata: %w", err)
 	}
 
- 
 	if err := sessionStore.Clear(ctx, chatID); err != nil {
 		logger.WarnContext(ctx, "failed to clear session after save", slog.String("error", err.Error()))
 	}
- 
+
 	logger.InfoContext(ctx, "letter saved",
 		slog.Int64("chat_id", chatID),
 		slog.String("letter_id", letterID),
 		slog.String("s3_key", finalKey),
 	)
- 
+
 	return tgClient.SendMessage(ctx, chatID, messages.LetterSaved)
 }
- 
+
 // sanitizeForKey converts a string into a format safe for an S3 key: only [a-z0-9-_] are allowed,
 // with spaces and other characters replaced by "-". This ensures that CopyObject (used in Move)
 // does not fail due to spaces or Unicode characters in CopySource without manual URL encoding.
