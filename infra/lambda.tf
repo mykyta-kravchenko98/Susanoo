@@ -113,7 +113,7 @@ resource "aws_iam_role_policy" "processor" {
       },
       {
         Effect   = "Allow"
-        Action   = ["s3:PutObject", "s3:GetObject"]
+        Action   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
         Resource = "${aws_s3_bucket.documents.arn}/*"
       },
       {
