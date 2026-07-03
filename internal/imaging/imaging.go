@@ -55,3 +55,33 @@ func Downsample(data []byte) ([]byte, error) {
 	}
 	return out.Bytes(), nil
 }
+
+func Rotate(data []byte, clockwiseDegrees int) ([]byte, error) {
+	normalized := ((clockwiseDegrees % 360) + 360) % 360
+	if normalized == 0 {
+		return data, nil
+	}
+
+	img, err := imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
+	if err != nil {
+		return nil, fmt.Errorf("decode image for rotation: %w", err)
+	}
+
+	var rotated image.Image
+	switch normalized {
+	case 90:
+		rotated = imaging.Rotate270(img) // библиотека вращает против часовой; 270 CCW = 90 CW
+	case 180:
+		rotated = imaging.Rotate180(img)
+	case 270:
+		rotated = imaging.Rotate90(img) // 90 CCW = 270 CW
+	default:
+		return nil, fmt.Errorf("unsupported rotation: %d degrees (only 0/90/180/270 allowed)", clockwiseDegrees)
+	}
+
+	var out bytes.Buffer
+	if err := imaging.Encode(&out, rotated, imaging.JPEG, imaging.JPEGQuality(JPEGQuality)); err != nil {
+		return nil, fmt.Errorf("encode rotated jpeg: %w", err)
+	}
+	return out.Bytes(), nil
+}

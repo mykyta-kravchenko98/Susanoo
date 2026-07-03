@@ -241,7 +241,24 @@ func processDocument(ctx context.Context, chatID int64, photoIDs []string) error
 		downsampled = append(downsampled, small)
 	}
 
-	pdfBytes, err := pdfbuilder.BuildFromJPEGs(downsampled)
+	rotateFn := func(imgs [][]byte, clockwiseDegrees int) ([][]byte, error) {
+		rotated := make([][]byte, len(imgs))
+		for i, img := range imgs {
+			r, err := imaging.Rotate(img, clockwiseDegrees)
+			if err != nil {
+				return nil, fmt.Errorf("rotate photo %d: %w", i, err)
+			}
+			rotated[i] = r
+		}
+		return rotated, nil
+	}
+
+	fields, corrected, err := llmClient.ClassifyLetter(ctx, downsampled, receivedAt.Format("2006-01-02"), rotateFn)
+	if err != nil {
+		return fmt.Errorf("classify letter: %w", err)
+	}
+
+	pdfBytes, err := pdfbuilder.BuildFromJPEGs(corrected)
 	if err != nil {
 		return fmt.Errorf("build pdf: %w", err)
 	}
@@ -249,11 +266,6 @@ func processDocument(ctx context.Context, chatID int64, photoIDs []string) error
 	pdfKey := fmt.Sprintf("Unsorted/%d/%d/%s.pdf", chatID, receivedAt.Year(), receivedAt.Format("20060102T150405"))
 	if err := docStore.PutPDF(ctx, pdfKey, pdfBytes); err != nil {
 		return fmt.Errorf("store pdf: %w", err)
-	}
-
-	fields, err := llmClient.ClassifyLetter(ctx, downsampled, receivedAt.Format("2006-01-02"))
-	if err != nil {
-		return fmt.Errorf("classify letter (pdf already saved at %s): %w", pdfKey, err)
 	}
 
 	classificationJSON, err := json.Marshal(fields)
@@ -267,7 +279,7 @@ func processDocument(ctx context.Context, chatID int64, photoIDs []string) error
 
 	logger.InfoContext(ctx, "document classified, awaiting confirmation",
 		slog.Int64("chat_id", chatID),
-		slog.Int("page_count", len(downsampled)),
+		slog.Int("page_count", len(corrected)),
 		slog.String("pdf_key", pdfKey),
 		slog.String("organization", fields.Organization),
 	)
