@@ -1,0 +1,81 @@
+name: Deploy Lambda Code
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/deploy.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-central-1
+  WEBHOOK_FUNCTION: susanoo-webhook-receiver
+  PROCESSOR_FUNCTION: susanoo-processor
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - name: Build webhook binary (linux/arm64)
+        run: |
+          mkdir -p dist/webhook dist/processor
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o dist/webhook/bootstrap ./cmd/webhook
+
+      - name: Build processor binary (linux/arm64)
+        run: |
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o dist/processor/bootstrap ./cmd/processor
+
+      - name: Zip artifacts
+        run: |
+          cd dist/webhook && zip -j ../webhook.zip bootstrap && cd ../..
+          cd dist/processor && zip -j ../processor.zip bootstrap && cd ../..
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::528081867341:role/susanoo-github-actions
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy webhook receiver
+        run: |
+          aws lambda update-function-code \
+            --function-name "${{ env.WEBHOOK_FUNCTION }}" \
+            --zip-file fileb://dist/webhook.zip \
+            --region "${{ env.AWS_REGION }}"
+
+      - name: Wait for webhook update to finish
+        run: |
+          aws lambda wait function-updated-v2 \
+            --function-name "${{ env.WEBHOOK_FUNCTION }}" \
+            --region "${{ env.AWS_REGION }}"
+
+      - name: Deploy processor
+        run: |
+          aws lambda update-function-code \
+            --function-name "${{ env.PROCESSOR_FUNCTION }}" \
+            --zip-file fileb://dist/processor.zip \
+            --region "${{ env.AWS_REGION }}"
+
+      - name: Wait for processor update to finish
+        run: |
+          aws lambda wait function-updated-v2 \
+            --function-name "${{ env.PROCESSOR_FUNCTION }}" \
+            --region "${{ env.AWS_REGION }}"
