@@ -49,16 +49,19 @@ func PhotoAdded(pageCount int) string {
 	return fmt.Sprintf("Photo %d added. Another page, or done?", pageCount)
 }
 
-func ClassificationPreview(organization, docType, summaryRU string, actionRequiredRU, deadline *string, urgency string) string {
+func ClassificationPreview(organization, docType, summaryRU string, actionRequiredRU, deadline *string, urgency string, isOverdue bool) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "📄 %s\n", docType)
 	fmt.Fprintf(&b, "From: %s\n\n", organization)
 	fmt.Fprintf(&b, "%s\n\n", summaryRU)
 
-	if deadline != nil {
+	switch {
+	case deadline != nil && isOverdue:
+		fmt.Fprintf(&b, "⚠️ Deadline OVERDUE: %s (already passed)\n", *deadline)
+	case deadline != nil:
 		fmt.Fprintf(&b, "⏰ Deadline: %s\n", *deadline)
-	} else {
+	default:
 		b.WriteString("⏰ Deadline: not detected\n")
 	}
 
