@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"regexp"
+	"strings"
 	"time"
  
 	"github.com/aws/aws-lambda-go/events"
@@ -16,6 +18,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
  
 	"github.com/mykyta-kravchenko98/Susanoo/internal/imaging"
+	"github.com/mykyta-kravchenko98/Susanoo/internal/letters"
+	"github.com/mykyta-kravchenko98/Susanoo/internal/llm"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/messages"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/pdfbuilder"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/session"
@@ -24,15 +28,19 @@ import (
 )
 
 const (
-	callbackAddMore = "add_more"
-	callbackDone    = "done"
-	callbackRestart = "restart"
+	callbackAddMore    = "add_more"
+	callbackDone       = "done"
+	callbackRestart    = "restart"
+	callbackConfirmSave = "confirm_save"
+	callbackRequestFix  = "request_fix"
 )
 
 var (
 	logger        *slog.Logger
 	sessionStore  *session.Store
 	docStore      *storage.DocumentStore
+	lettersStore  *letters.Store
+	llmClient     *llm.Client
 	tgClient      *telegram.Client
 )
 
@@ -52,11 +60,22 @@ func init() {
 	documentsBucket := mustEnv("DOCUMENTS_BUCKET")
 	docStore = storage.NewDocumentStore(s3.NewFromConfig(cfg), documentsBucket)
 
-	tgToken, err := fetchSecret(ctx, secretsmanager.NewFromConfig(cfg), mustEnv("TELEGRAM_TOKEN_SECRET"))
+	lettersTable := mustEnv("LETTERS_TABLE")
+	lettersStore = letters.NewStore(dynamodb.NewFromConfig(cfg), lettersTable)
+
+	smClient := secretsmanager.NewFromConfig(cfg)
+
+	tgToken, err := fetchSecret(ctx, smClient, mustEnv("TELEGRAM_TOKEN_SECRET"))
 	if err != nil {
 		panic(fmt.Sprintf("failed to fetch telegram token: %v", err))
 	}
 	tgClient = telegram.NewClient(tgToken)
+ 
+	anthropicKey, err := fetchSecret(ctx, smClient, mustEnv("ANTHROPIC_KEY_SECRET"))
+	if err != nil {
+		panic(fmt.Sprintf("failed to fetch anthropic api key: %v", err))
+	}
+	llmClient = llm.NewClient(anthropicKey)
 }
 
 func mustEnv(key string) string {
@@ -175,8 +194,17 @@ func handleCallback(ctx context.Context, cb *telegram.CallbackQuery) error {
 			return fmt.Errorf("process document: %w", err)
 		}
 
-		return sessionStore.Clear(ctx, chatID)
+		return nil
 
+	case callbackConfirmSave:
+		return handleConfirmSave(ctx, chatID)
+ 
+	case callbackRequestFix:
+		if err := sessionStore.Clear(ctx, chatID); err != nil {
+			return fmt.Errorf("clear session on fix: %w", err)
+		}
+		return tgClient.SendMessage(ctx, chatID, messages.RequestFixPrompt)
+ 
 	default:
 		logger.WarnContext(ctx, "unknown callback data", slog.String("data", cb.Data))
 		return nil
@@ -217,26 +245,120 @@ func processDocument(ctx context.Context, chatID int64, photoIDs []string) error
 		return fmt.Errorf("build pdf: %w", err)
 	}
  
-	// TODO: next step - call the Claude Haiku vision API on downsampled images:
-	//   1. extract organization/doc_type/summary/deadline/action_required/urgency + Russian translations
-	//   2. determine the final S3 key based on the extracted organization and letter year
-	//      (organization/year/filename.pdf), with a fallback to Unsorted/ if model confidence is low
-	//   3. show the user a classification preview with "OK/Correct" buttons (see MVP flow)
-	//   4. write metadata to DynamoDB (letters) and create an EventBridge reminder
-	//      only upon confirmation (if a deadline exists)
-	// For now, save unconditionally to Unsorted, without classification or DynamoDB entry.
 	pdfKey := fmt.Sprintf("Unsorted/%d/%s.pdf", receivedAt.Year(), receivedAt.Format("20060102T150405"))
 	if err := docStore.PutPDF(ctx, pdfKey, pdfBytes); err != nil {
 		return fmt.Errorf("store pdf: %w", err)
 	}
  
-	logger.InfoContext(ctx, "document processed and stored (classification not yet implemented)",
+	fields, err := llmClient.ClassifyLetter(ctx, downsampled, receivedAt.Format("2006-01-02"))
+	if err != nil {
+		return fmt.Errorf("classify letter (pdf already saved at %s): %w", pdfKey, err)
+	}
+
+	classificationJSON, err := json.Marshal(fields)
+	if err != nil {
+		return fmt.Errorf("marshal classification: %w", err)
+	}
+
+	if err := sessionStore.SetPendingConfirmation(ctx, chatID, pdfKey, string(classificationJSON)); err != nil {
+		return fmt.Errorf("set pending confirmation: %w", err)
+	}
+
+	logger.InfoContext(ctx, "document classified, awaiting confirmation",
 		slog.Int64("chat_id", chatID),
 		slog.Int("page_count", len(downsampled)),
 		slog.String("pdf_key", pdfKey),
+		slog.String("organization", fields.Organization),
 	)
- 
-	return nil
+
+	return tgClient.SendMessage(ctx, chatID, messages.ClassificationPreview(
+		fields.Organization, fields.DocType, fields.SummaryRU, fields.ActionRequiredRU, fields.Deadline, fields.Urgency,
+	),
+		telegram.InlineButton{Text: messages.ButtonSave, CallbackData: callbackConfirmSave},
+		telegram.InlineButton{Text: messages.ButtonFix, CallbackData: callbackRequestFix},
+	)
+}
+
+func handleConfirmSave(ctx context.Context, chatID int64) error {
+	sess, err := sessionStore.Get(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("get session on confirm: %w", err)
+	}
+	if sess == nil || sess.Status != session.StatusPendingConfirmation {
+		return tgClient.SendMessage(ctx, chatID, messages.NothingToConfirm)
+	}
+
+	var fields llm.ExtractedFields
+	if err := json.Unmarshal([]byte(sess.Classification), &fields); err != nil {
+		return fmt.Errorf("unmarshal stored classification: %w", err)
+	}
+
+	year := time.Now().UTC().Year()
+	safeOrg := sanitizeForKey(fields.Organization)
+	safeFilename := sanitizeForKey(fields.Filename)
+	finalKey := fmt.Sprintf("%s/%d/%s.pdf", safeOrg, year, safeFilename)
+
+	if err := docStore.Move(ctx, sess.PDFKey, finalKey); err != nil {
+		return fmt.Errorf("move pdf to final location: %w", err)
+	}
+
+	letterID, err := letters.NewLetterID()
+	if err != nil {
+		return fmt.Errorf("generate letter id: %w", err)
+	}
+
+	letter := letters.Letter{
+		LetterID:     letterID,
+		Organization: fields.Organization,
+		ReceivedDate: time.Now().UTC().Format("2006-01-02"),
+		DocType:      fields.DocType,
+		Filename:     fields.Filename,
+		Summary:      fields.Summary,
+		SummaryRU:    fields.SummaryRU,
+		Urgency:      fields.Urgency,
+		S3Key:        finalKey,
+		CreatedAt:    time.Now().UTC().Format(time.RFC3339),
+	}
+	if fields.Deadline != nil {
+		letter.Deadline = *fields.Deadline
+	}
+	if fields.ActionRequired != nil {
+		letter.ActionRequired = *fields.ActionRequired
+	}
+	if fields.ActionRequiredRU != nil {
+		letter.ActionRequiredRU = *fields.ActionRequiredRU
+	}
+
+	if err := lettersStore.Put(ctx, letter); err != nil {
+		return fmt.Errorf("save letter metadata: %w", err)
+	}
+
+	if err := sessionStore.Clear(ctx, chatID); err != nil {
+		logger.WarnContext(ctx, "failed to clear session after save", slog.String("error", err.Error()))
+	}
+
+	logger.InfoContext(ctx, "letter saved",
+		slog.Int64("chat_id", chatID),
+		slog.String("letter_id", letterID),
+		slog.String("s3_key", finalKey),
+	)
+
+	return tgClient.SendMessage(ctx, chatID, messages.LetterSaved)
+}
+
+// sanitizeForKey converts a string into a format safe for an S3 key: only [a-z0-9-_] are allowed,
+// with spaces and other characters replaced by "-". This ensures that CopyObject (used in Move)
+// does not fail due to spaces or Unicode characters in CopySource without manual URL encoding.
+var unsafeKeyChars = regexp.MustCompile(`[^a-z0-9\-_]+`)
+
+func sanitizeForKey(s string) string {
+	lower := strings.ToLower(strings.TrimSpace(s))
+	safe := unsafeKeyChars.ReplaceAllString(lower, "-")
+	safe = strings.Trim(safe, "-")
+	if safe == "" {
+		return "unsorted"
+	}
+	return safe
 }
 
 func main() {
