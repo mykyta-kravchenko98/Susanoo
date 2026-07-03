@@ -5,13 +5,14 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-
+ 
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 )
 
 type Letter struct {
 	LetterID         string `dynamodbav:"letter_id"`
+	ChatID           int64  `dynamodbav:"chat_id"`
 	Organization     string `dynamodbav:"organization"`
 	ReceivedDate     string `dynamodbav:"received_date"` // ISO 8601
 	DocType          string `dynamodbav:"doc_type"`
@@ -23,9 +24,8 @@ type Letter struct {
 	ActionRequiredRU string `dynamodbav:"action_required_ru,omitempty"`
 	Urgency          string `dynamodbav:"urgency"`
 	S3Key            string `dynamodbav:"s3_key"`
-	CreatedAt        string `dynamodbav:"created_at"` // ISO 8601 timestamp
+	CreatedAt        string `dynamodbav:"created_at"` // ISO 8601
 }
-
 type Store struct {
 	client    *dynamodb.Client
 	tableName string

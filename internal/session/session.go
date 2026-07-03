@@ -2,9 +2,10 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
- 
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -12,8 +13,13 @@ import (
 )
 
 const ttlDuration = 30 * time.Minute
-const StatusPendingConfirmation = "pending_confirmation"
 const pendingTTLDuration = 30 * time.Minute
+const (
+	StatusPendingConfirmation = "pending_confirmation"
+	StatusSaving              = "saving"
+)
+
+var ErrNotPending = errors.New("session is not in pending_confirmation state")
 
 type Session struct {
 	ChatID         int64    `dynamodbav:"chat_id"`
@@ -71,7 +77,7 @@ func (s *Store) AppendPhoto(ctx context.Context, chatID int64, fileID string) (*
 
 	out, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:        aws.String(s.tableName),
-		Key:               key,
+		Key:              key,
 		UpdateExpression: aws.String("SET photo_ids = list_append(if_not_exists(photo_ids, :empty_list), :new_photo), expires_at = :expires_at"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":new_photo":  &types.AttributeValueMemberL{Value: []types.AttributeValue{&types.AttributeValueMemberS{Value: fileID}}},
@@ -91,17 +97,52 @@ func (s *Store) AppendPhoto(ctx context.Context, chatID int64, fileID string) (*
 	return &sess, nil
 }
 
+func (s *Store) MarkSaving(ctx context.Context, chatID int64) (*Session, error) {
+	key, err := attributevalue.MarshalMap(map[string]int64{"chat_id": chatID})
+	if err != nil {
+		return nil, fmt.Errorf("marshal key: %w", err)
+	}
+
+	out, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName:           aws.String(s.tableName),
+		Key:                 key,
+		UpdateExpression:    aws.String("SET #status = :saving"),
+		ConditionExpression: aws.String("#status = :pending"),
+		ExpressionAttributeNames: map[string]string{
+			"#status": "status",
+		},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":saving":  &types.AttributeValueMemberS{Value: StatusSaving},
+			":pending": &types.AttributeValueMemberS{Value: StatusPendingConfirmation},
+		},
+		ReturnValues: types.ReturnValueAllNew,
+	})
+	if err != nil {
+		var condErr *types.ConditionalCheckFailedException
+		if errors.As(err, &condErr) {
+			return nil, ErrNotPending
+		}
+		return nil, fmt.Errorf("mark session saving: %w", err)
+	}
+
+	var sess Session
+	if err := attributevalue.UnmarshalMap(out.Attributes, &sess); err != nil {
+		return nil, fmt.Errorf("unmarshal session: %w", err)
+	}
+	return &sess, nil
+}
+
 func (s *Store) SetPendingConfirmation(ctx context.Context, chatID int64, pdfKey, classificationJSON string) error {
 	expiresAt := time.Now().Add(pendingTTLDuration).Unix()
- 
+
 	key, err := attributevalue.MarshalMap(map[string]int64{"chat_id": chatID})
 	if err != nil {
 		return fmt.Errorf("marshal key: %w", err)
 	}
- 
+
 	_, err = s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:        aws.String(s.tableName),
-		Key:               key,
+		Key:              key,
 		UpdateExpression: aws.String("SET #status = :status, pdf_key = :pdf_key, classification = :classification, expires_at = :expires_at"),
 		ExpressionAttributeNames: map[string]string{
 			"#status": "status",

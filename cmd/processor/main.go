@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -280,35 +281,43 @@ func processDocument(ctx context.Context, chatID int64, photoIDs []string) error
 }
 
 func handleConfirmSave(ctx context.Context, chatID int64) error {
-	sess, err := sessionStore.Get(ctx, chatID)
+	sess, err := sessionStore.MarkSaving(ctx, chatID)
 	if err != nil {
-		return fmt.Errorf("get session on confirm: %w", err)
+		if errors.Is(err, session.ErrNotPending) {
+			return tgClient.SendMessage(ctx, chatID, messages.NothingToConfirm)
+		}
+		return fmt.Errorf("mark session saving: %w", err)
 	}
-	if sess == nil || sess.Status != session.StatusPendingConfirmation {
-		return tgClient.SendMessage(ctx, chatID, messages.NothingToConfirm)
+ 
+	if err := tgClient.SendMessage(ctx, chatID, messages.SavingStarted); err != nil {
+		logger.WarnContext(ctx, "failed to send saving notice", slog.String("error", err.Error()))
 	}
-
+ 
 	var fields llm.ExtractedFields
 	if err := json.Unmarshal([]byte(sess.Classification), &fields); err != nil {
 		return fmt.Errorf("unmarshal stored classification: %w", err)
 	}
-
-	year := time.Now().UTC().Year()
+ 
+	now := time.Now().UTC()
 	safeOrg := sanitizeForKey(fields.Organization)
 	safeFilename := sanitizeForKey(fields.Filename)
-	finalKey := fmt.Sprintf("%s/%d/%s.pdf", safeOrg, year, safeFilename)
-
+	finalKey := fmt.Sprintf("%d/%s/%d/%02d/%s.pdf", chatID, safeOrg, now.Year(), now.Month(), safeFilename)
+ 
 	if err := docStore.Move(ctx, sess.PDFKey, finalKey); err != nil {
+		if sendErr := tgClient.SendMessage(ctx, chatID, messages.SaveFailed); sendErr != nil {
+			logger.WarnContext(ctx, "failed to send save-failed notice", slog.String("error", sendErr.Error()))
+		}
 		return fmt.Errorf("move pdf to final location: %w", err)
 	}
-
+ 
 	letterID, err := letters.NewLetterID()
 	if err != nil {
 		return fmt.Errorf("generate letter id: %w", err)
 	}
-
+ 
 	letter := letters.Letter{
 		LetterID:     letterID,
+		ChatID:       chatID,
 		Organization: fields.Organization,
 		ReceivedDate: time.Now().UTC().Format("2006-01-02"),
 		DocType:      fields.DocType,
@@ -328,24 +337,25 @@ func handleConfirmSave(ctx context.Context, chatID int64) error {
 	if fields.ActionRequiredRU != nil {
 		letter.ActionRequiredRU = *fields.ActionRequiredRU
 	}
-
+ 
 	if err := lettersStore.Put(ctx, letter); err != nil {
 		return fmt.Errorf("save letter metadata: %w", err)
 	}
 
+ 
 	if err := sessionStore.Clear(ctx, chatID); err != nil {
 		logger.WarnContext(ctx, "failed to clear session after save", slog.String("error", err.Error()))
 	}
-
+ 
 	logger.InfoContext(ctx, "letter saved",
 		slog.Int64("chat_id", chatID),
 		slog.String("letter_id", letterID),
 		slog.String("s3_key", finalKey),
 	)
-
+ 
 	return tgClient.SendMessage(ctx, chatID, messages.LetterSaved)
 }
-
+ 
 // sanitizeForKey converts a string into a format safe for an S3 key: only [a-z0-9-_] are allowed,
 // with spaces and other characters replaced by "-". This ensures that CopyObject (used in Move)
 // does not fail due to spaces or Unicode characters in CopySource without manual URL encoding.
