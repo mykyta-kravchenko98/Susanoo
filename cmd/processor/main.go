@@ -6,15 +6,20 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-
+	"time"
+ 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
-
+ 
+	"github.com/mykyta-kravchenko98/Susanoo/internal/imaging"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/messages"
+	"github.com/mykyta-kravchenko98/Susanoo/internal/pdfbuilder"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/session"
+	"github.com/mykyta-kravchenko98/Susanoo/internal/storage"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/telegram"
 )
 
@@ -26,6 +31,7 @@ const (
 var (
 	logger        *slog.Logger
 	sessionStore  *session.Store
+	docStore      *storage.DocumentStore
 	tgClient      *telegram.Client
 )
 
@@ -41,6 +47,9 @@ func init() {
 
 	sessionsTable := mustEnv("SESSIONS_TABLE")
 	sessionStore = session.NewStore(dynamodb.NewFromConfig(cfg), sessionsTable)
+
+	documentsBucket := mustEnv("DOCUMENTS_BUCKET")
+	docStore = storage.NewDocumentStore(s3.NewFromConfig(cfg), documentsBucket)
 
 	tgToken, err := fetchSecret(ctx, secretsmanager.NewFromConfig(cfg), mustEnv("TELEGRAM_TOKEN_SECRET"))
 	if err != nil {
@@ -145,16 +154,18 @@ func handleCallback(ctx context.Context, cb *telegram.CallbackQuery) error {
 			logger.WarnContext(ctx, "failed to send processing notice", slog.String("error", err.Error()))
 		}
 
-		// TODO: the next step is processDocument(ctx, chatID, sess.PhotoIDs):
-		//   1. download photo by file_id via tgClient.GetFilePath + DownloadFile
-		//   2. downsampling + PDF assembly
-		//   3. Claude Haiku Vision API call (field extraction + translation)
-		//   4. preview with "OK/Fix" buttons
-		//   5. Upon confirmation: save to S3 + DynamoDB (letters) + EventBridge for the deadline.
-		logger.InfoContext(ctx, "TODO: processDocument not yet implemented",
-			slog.Int64("chat_id", chatID),
-			slog.Int("photo_count", len(sess.PhotoIDs)),
-		)
+		if err := processDocument(ctx, chatID, sess.PhotoIDs); err != nil {
+			logger.ErrorContext(ctx, "failed to process document",
+				slog.String("error", err.Error()),
+				slog.Int64("chat_id", chatID),
+			)
+			if sendErr := tgClient.SendMessage(ctx, chatID, messages.ProcessingFailed); sendErr != nil {
+				logger.WarnContext(ctx, "failed to send failure notice", slog.String("error", sendErr.Error()))
+			}
+			// Do not clear the session upon payment - the user might type "Done" again
+			// without needing to photograph all the pages again.
+			return fmt.Errorf("process document: %w", err)
+		}
 
 		return sessionStore.Clear(ctx, chatID)
 
@@ -162,6 +173,62 @@ func handleCallback(ctx context.Context, cb *telegram.CallbackQuery) error {
 		logger.WarnContext(ctx, "unknown callback data", slog.String("data", cb.Data))
 		return nil
 	}
+}
+
+func processDocument(ctx context.Context, chatID int64, photoIDs []string) error {
+	receivedAt := time.Now().UTC()
+ 
+	downsampled := make([][]byte, 0, len(photoIDs))
+ 
+	for i, fileID := range photoIDs {
+		filePath, err := tgClient.GetFilePath(ctx, fileID)
+		if err != nil {
+			return fmt.Errorf("get file path for photo %d: %w", i, err)
+		}
+ 
+		raw, err := tgClient.DownloadFile(ctx, filePath)
+		if err != nil {
+			return fmt.Errorf("download photo %d: %w", i, err)
+		}
+ 
+		rawKey := fmt.Sprintf("raw/%d/%s_%d.jpg", chatID, receivedAt.Format("20060102T150405"), i)
+		if err := docStore.PutRaw(ctx, rawKey, raw); err != nil {
+			logger.WarnContext(ctx, "failed to store raw photo, continuing anyway",
+				slog.String("error", err.Error()), slog.Int("photo_index", i))
+		}
+ 
+		small, err := imaging.Downsample(raw)
+		if err != nil {
+			return fmt.Errorf("downsample photo %d: %w", i, err)
+		}
+		downsampled = append(downsampled, small)
+	}
+ 
+	pdfBytes, err := pdfbuilder.BuildFromJPEGs(downsampled)
+	if err != nil {
+		return fmt.Errorf("build pdf: %w", err)
+	}
+ 
+	// TODO: next step - call the Claude Haiku vision API on downsampled images:
+	//   1. extract organization/doc_type/summary/deadline/action_required/urgency + Russian translations
+	//   2. determine the final S3 key based on the extracted organization and letter year
+	//      (organization/year/filename.pdf), with a fallback to Unsorted/ if model confidence is low
+	//   3. show the user a classification preview with "OK/Correct" buttons (see MVP flow)
+	//   4. write metadata to DynamoDB (letters) and create an EventBridge reminder
+	//      only upon confirmation (if a deadline exists)
+	// For now, save unconditionally to Unsorted, without classification or DynamoDB entry.
+	pdfKey := fmt.Sprintf("Unsorted/%d/%s.pdf", receivedAt.Year(), receivedAt.Format("20060102T150405"))
+	if err := docStore.PutPDF(ctx, pdfKey, pdfBytes); err != nil {
+		return fmt.Errorf("store pdf: %w", err)
+	}
+ 
+	logger.InfoContext(ctx, "document processed and stored (classification not yet implemented)",
+		slog.Int64("chat_id", chatID),
+		slog.Int("page_count", len(downsampled)),
+		slog.String("pdf_key", pdfKey),
+	)
+ 
+	return nil
 }
 
 func main() {
