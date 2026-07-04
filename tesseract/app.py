@@ -72,11 +72,17 @@ def detect_rotation(img: Image.Image) -> int:
         return 0
 
     confidence = float(osd.get("orientation_conf", 0))
+    suggested_rotation = int(osd.get("rotate", 0))
+    logger.info(
+        "tesseract osd result: confidence=%.3f suggested_rotation=%d",
+        confidence, suggested_rotation,
+    )
+
     if confidence < MIN_ORIENTATION_CONFIDENCE:
         logger.info("orientation confidence too low (%.2f), skipping rotation", confidence)
         return 0
 
-    return int(osd.get("rotate", 0))
+    return suggested_rotation
 
 
 def downsample(img: Image.Image) -> Image.Image:
