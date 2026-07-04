@@ -14,17 +14,15 @@ import (
 const maxOutputTokens = 1024
 
 type ExtractedFields struct {
-	NeedsRotation            bool    `json:"needs_rotation"`
-	RotationClockwiseDegrees int     `json:"rotation_clockwise_degrees"`
-	Organization             string  `json:"organization"`
-	DocType                  string  `json:"doc_type"`
-	Filename                 string  `json:"filename"`
-	Summary                  string  `json:"summary"`
-	SummaryRU                string  `json:"summary_ru"`
-	Deadline                 *string `json:"deadline"` // ISO 8601 (YYYY-MM-DD) или null
-	ActionRequired           *string `json:"action_required"`
-	ActionRequiredRU         *string `json:"action_required_ru"`
-	Urgency                  string  `json:"urgency"` // high|medium|low
+	Organization     string  `json:"organization"`
+	DocType          string  `json:"doc_type"`
+	Filename         string  `json:"filename"`
+	Summary          string  `json:"summary"`
+	SummaryRU        string  `json:"summary_ru"`
+	Deadline         *string `json:"deadline"` // ISO 8601 (YYYY-MM-DD) или null
+	ActionRequired   *string `json:"action_required"`
+	ActionRequiredRU *string `json:"action_required_ru"`
+	Urgency          string  `json:"urgency"` // high|medium|low
 }
 
 type Client struct {
@@ -39,40 +37,11 @@ func NewClient(apiKey string) *Client {
 
 const maxRotationRetries = 1
 
-func (c *Client) ClassifyLetter(
-	ctx context.Context,
-	images [][]byte,
-	receivedDate string,
-	rotateFn func(images [][]byte, clockwiseDegrees int) ([][]byte, error),
-) (*ExtractedFields, [][]byte, error) {
+func (c *Client) ClassifyLetter(ctx context.Context, images [][]byte, receivedDate string) (*ExtractedFields, error) {
 	if len(images) == 0 {
-		return nil, nil, fmt.Errorf("no images provided")
+		return nil, fmt.Errorf("no images provided")
 	}
 
-	current := images
-	for attempt := 0; ; attempt++ {
-		fields, err := c.classifyOnce(ctx, current, receivedDate)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		if !fields.NeedsRotation {
-			return fields, current, nil
-		}
-
-		if attempt >= maxRotationRetries {
-			return nil, nil, fmt.Errorf("model still reports needs_rotation after %d retries, giving up", maxRotationRetries)
-		}
-
-		rotated, err := rotateFn(current, fields.RotationClockwiseDegrees)
-		if err != nil {
-			return nil, nil, fmt.Errorf("rotate images by %d degrees: %w", fields.RotationClockwiseDegrees, err)
-		}
-		current = rotated
-	}
-}
-
-func (c *Client) classifyOnce(ctx context.Context, images [][]byte, receivedDate string) (*ExtractedFields, error) {
 	contentBlocks := make([]anthropic.ContentBlockParamUnion, 0, len(images)+1)
 	for _, img := range images {
 		encoded := base64.StdEncoding.EncodeToString(img)

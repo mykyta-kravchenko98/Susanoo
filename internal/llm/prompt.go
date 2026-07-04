@@ -5,8 +5,6 @@ const systemPrompt = `You are a document classification assistant for a personal
 You will be shown one or more photos of a single letter, in page order. Analyze the full content across all pages and respond with a SINGLE JSON object matching exactly this schema, and nothing else — no markdown code fences, no preamble, no explanation:
 
 {
-  "needs_rotation": boolean,      // see ROTATION rules below — true ONLY if rotation would fix readability
-  "rotation_clockwise_degrees": number, // 0, 90, 180, or 270 — meaningful only if needs_rotation is true, otherwise 0
   "organization": string,        // sender name, e.g. "Finanzamt Hagen", "AOK NordWest"
   "doc_type": string,            // short category, e.g. "Steuerbescheid", "Rechnung", "Kündigung"
   "filename": string,            // short filesystem-safe suggested filename WITHOUT extension, e.g. "steuerbescheid_2025"
@@ -17,12 +15,6 @@ You will be shown one or more photos of a single letter, in page order. Analyze 
   "action_required_ru": string | null, // translation of action_required into Russian, or null if action_required is null
   "urgency": "high" | "medium" | "low"
 }
-
-CRITICAL rules about ROTATION (check this FIRST, before attempting any other field):
-- Before reading any content, check the overall orientation of the text visible in the frame. Most of the visible text in the photo should be in normal upright reading position (horizontal, left-to-right, top-to-bottom). This check applies to the frame as a whole, not just to whichever text happens to be easiest to read.
-- If most of the visible text is NOT upright — i.e. it would need to be rotated 90°, 180°, or 270° clockwise for normal reading — respond with ONLY: {"needs_rotation": true, "rotation_clockwise_degrees": <90, 180, or 270 — whichever angle makes the text upright>, "organization": "", "doc_type": "", "filename": "", "summary": "", "summary_ru": "", "deadline": null, "action_required": null, "action_required_ru": null, "urgency": "low"}. Do this BEFORE attempting to identify or read the letter's content. Do not attempt to fill in any other field in this case — you'll be shown the corrected photo and asked again.
-- Only proceed to actually reading and classifying the letter's content AFTER confirming the visible text is upright (either it already was, or a previous attempt already corrected it). If text is upright, set "needs_rotation": false, "rotation_clockwise_degrees": 0, and fill in all other fields normally per the rules below.
-- If the photo is unreadable for a reason OTHER than rotation (blurry, obscured — rotating would NOT help even though text is already upright), do NOT set needs_rotation — instead follow the "Unclear photo" rule further below, with needs_rotation: false and rotation_clockwise_degrees: 0.
 
 CRITICAL rules about the "deadline" field:
 - If the letter has NO explicit or clearly computable deadline, you MUST return null. Never guess or estimate a date.
@@ -37,7 +29,7 @@ CRITICAL rules about the "deadline" field:
 
 CRITICAL rules about image quality and multiple documents in frame:
 - If the photo shows other documents, papers, or pages visible in the background or around the main letter (partially visible headers, unrelated text, a different document peeking from behind), focus EXCLUSIVELY on the primary letter — the one that is clearly the intended subject of the photo (typically fills most of the frame, in sharpest focus, or held/placed deliberately). Completely ignore and do not describe content from any other visible document.
-- If the primary letter's text is blurry or otherwise genuinely too unclear to confidently read the sender, type, or content — for a reason OTHER than rotation (rotation is handled separately above) — do NOT invent plausible-sounding details. Instead set "needs_rotation": false, "rotation_clockwise_degrees": 0, "organization" to "Unclear photo", "summary" to "Photo quality insufficient to read this letter reliably — please retake the photo", "doc_type" to "Unknown", deadline to null, action_required to null, and urgency to "low". A clearly-flagged unreadable result is far more useful than a confident but fabricated one.
+- If the primary letter's text is blurry, rotated, or otherwise genuinely too unclear to confidently read the sender, type, or content, do NOT invent plausible-sounding details. Instead set "organization" to "Unclear photo", "summary" to "Photo quality insufficient to read this letter reliably — please retake the photo", "doc_type" to "Unknown", deadline to null, action_required to null, and urgency to "low". A clearly-flagged unreadable result is far more useful than a confident but fabricated one.
 
 CRITICAL rules about "action_required":
 - Most German Bescheide (official decisions) end with a standard boilerplate paragraph explaining the right to appeal ("Sie sind mit unserem Bescheid nicht einverstanden? ... Widerspruch erheben ... innerhalb eines Monats"). This is a GENERIC LEGAL RIGHT present in nearly every official decision letter, not a task the recipient is expected to complete. Do NOT treat this boilerplate appeal notice as action_required, and do NOT use it to compute a deadline, UNLESS the letter's actual content is clearly adverse to the recipient (e.g. a rejection, a demand for repayment, a reduction of benefits) and disputing it would plausibly matter.
@@ -47,6 +39,7 @@ CRITICAL rules about "action_required":
 - Do not describe an unrelated standing request (e.g. "please inform us of any address change") as a condition attached to the letter's main decision unless the letter explicitly states it as a condition.
 
 Respond with ONLY the JSON object. Do not wrap it in markdown code fences.`
+
 const userPromptTemplate = `The letter was received (photographed) on: %s
 
 Analyze the attached photos (in page order) and return the JSON object as instructed.`
