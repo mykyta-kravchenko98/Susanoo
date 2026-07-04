@@ -14,16 +14,19 @@ import (
 
 const ttlDuration = 30 * time.Minute
 const pendingTTLDuration = 30 * time.Minute
+
 const (
+	StatusAwaitingProcessing  = "awaiting_processing"
 	StatusPendingConfirmation = "pending_confirmation"
 	StatusSaving              = "saving"
 )
 
+var ErrAlreadyProcessing = errors.New("session is already past the collecting-photos stage")
 var ErrNotPending = errors.New("session is not in pending_confirmation state")
 
 type Session struct {
 	ChatID         int64    `dynamodbav:"chat_id"`
-	PhotoIDs       []string `dynamodbav:"photo_ids"`
+	RawKeys        []string `dynamodbav:"raw_keys"`
 	ExpiresAt      int64    `dynamodbav:"expires_at"`
 	Status         string   `dynamodbav:"status,omitempty"`
 	PDFKey         string   `dynamodbav:"pdf_key,omitempty"`
@@ -67,7 +70,7 @@ func (s *Store) Get(ctx context.Context, chatID int64) (*Session, error) {
 	return &sess, nil
 }
 
-func (s *Store) AppendPhoto(ctx context.Context, chatID int64, fileID string) (*Session, error) {
+func (s *Store) AppendRawKey(ctx context.Context, chatID int64, rawKey string) (*Session, error) {
 	expiresAt := time.Now().Add(ttlDuration).Unix()
 
 	key, err := attributevalue.MarshalMap(map[string]int64{"chat_id": chatID})
@@ -78,21 +81,55 @@ func (s *Store) AppendPhoto(ctx context.Context, chatID int64, fileID string) (*
 	out, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:        aws.String(s.tableName),
 		Key:              key,
-		UpdateExpression: aws.String("SET photo_ids = list_append(if_not_exists(photo_ids, :empty_list), :new_photo), expires_at = :expires_at"),
+		UpdateExpression: aws.String("SET raw_keys = list_append(if_not_exists(raw_keys, :empty_list), :new_key), expires_at = :expires_at"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":new_photo":  &types.AttributeValueMemberL{Value: []types.AttributeValue{&types.AttributeValueMemberS{Value: fileID}}},
+			":new_key":    &types.AttributeValueMemberL{Value: []types.AttributeValue{&types.AttributeValueMemberS{Value: rawKey}}},
 			":empty_list": &types.AttributeValueMemberL{Value: []types.AttributeValue{}},
 			":expires_at": &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", expiresAt)},
 		},
 		ReturnValues: types.ReturnValueAllNew,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("append photo to session: %w", err)
+		return nil, fmt.Errorf("append raw key to session: %w", err)
 	}
 
 	var sess Session
 	if err := attributevalue.UnmarshalMap(out.Attributes, &sess); err != nil {
 		return nil, fmt.Errorf("unmarshal updated session: %w", err)
+	}
+	return &sess, nil
+}
+
+func (s *Store) MarkAwaitingProcessing(ctx context.Context, chatID int64) (*Session, error) {
+	key, err := attributevalue.MarshalMap(map[string]int64{"chat_id": chatID})
+	if err != nil {
+		return nil, fmt.Errorf("marshal key: %w", err)
+	}
+
+	out, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName:           aws.String(s.tableName),
+		Key:                 key,
+		UpdateExpression:    aws.String("SET #status = :awaiting"),
+		ConditionExpression: aws.String("attribute_not_exists(#status)"),
+		ExpressionAttributeNames: map[string]string{
+			"#status": "status",
+		},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":awaiting": &types.AttributeValueMemberS{Value: StatusAwaitingProcessing},
+		},
+		ReturnValues: types.ReturnValueAllNew,
+	})
+	if err != nil {
+		var condErr *types.ConditionalCheckFailedException
+		if errors.As(err, &condErr) {
+			return nil, ErrAlreadyProcessing
+		}
+		return nil, fmt.Errorf("mark session awaiting processing: %w", err)
+	}
+
+	var sess Session
+	if err := attributevalue.UnmarshalMap(out.Attributes, &sess); err != nil {
+		return nil, fmt.Errorf("unmarshal session: %w", err)
 	}
 	return &sess, nil
 }
