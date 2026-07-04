@@ -241,24 +241,12 @@ func processDocument(ctx context.Context, chatID int64, photoIDs []string) error
 		downsampled = append(downsampled, small)
 	}
 
-	rotateFn := func(imgs [][]byte, clockwiseDegrees int) ([][]byte, error) {
-		rotated := make([][]byte, len(imgs))
-		for i, img := range imgs {
-			r, err := imaging.Rotate(img, clockwiseDegrees)
-			if err != nil {
-				return nil, fmt.Errorf("rotate photo %d: %w", i, err)
-			}
-			rotated[i] = r
-		}
-		return rotated, nil
-	}
-
-	fields, corrected, err := llmClient.ClassifyLetter(ctx, downsampled, receivedAt.Format("2006-01-02"), rotateFn)
+	fields, err := llmClient.ClassifyLetter(ctx, downsampled, receivedAt.Format("2006-01-02"))
 	if err != nil {
 		return fmt.Errorf("classify letter: %w", err)
 	}
 
-	pdfBytes, err := pdfbuilder.BuildFromJPEGs(corrected)
+	pdfBytes, err := pdfbuilder.BuildFromJPEGs(downsampled)
 	if err != nil {
 		return fmt.Errorf("build pdf: %w", err)
 	}
@@ -279,7 +267,7 @@ func processDocument(ctx context.Context, chatID int64, photoIDs []string) error
 
 	logger.InfoContext(ctx, "document classified, awaiting confirmation",
 		slog.Int64("chat_id", chatID),
-		slog.Int("page_count", len(corrected)),
+		slog.Int("page_count", len(downsampled)),
 		slog.String("pdf_key", pdfKey),
 		slog.String("organization", fields.Organization),
 	)
