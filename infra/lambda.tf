@@ -192,6 +192,7 @@ resource "aws_lambda_function" "processor" {
       SESSIONS_TABLE        = aws_dynamodb_table.sessions.name
       TELEGRAM_TOKEN_SECRET = aws_secretsmanager_secret.telegram_bot_token.name
       ANTHROPIC_KEY_SECRET  = aws_secretsmanager_secret.anthropic_api_key.name
+      IMAGES_TO_PROCESS_QUEUE_URL = aws_sqs_queue.images_to_process.url
       TRANSLATE_TARGET_LANG = "ru"
     }
   }
