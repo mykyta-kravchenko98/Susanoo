@@ -54,6 +54,26 @@ resource "aws_s3_bucket_lifecycle_configuration" "documents" {
       noncurrent_days = 7
     }
   }
+
+  rule {
+    id     = "expire-processed-photos"
+    status = "Enabled"
+
+    # processed/ — the output of Tesseract-Lambda (rotation + downsampling); it is needed only
+    # until the PDF is assembled within the processor. After that, it serves merely
+    # as a safeguard—like raw/—rather than as permanent storage.
+    filter {
+      prefix = "processed/"
+    }
+
+    expiration {
+      days = 7
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 7
+    }
+  }
 }
 
 # ---------------------------------------------------------------------------
