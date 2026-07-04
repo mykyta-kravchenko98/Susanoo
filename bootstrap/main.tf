@@ -157,6 +157,7 @@ data "aws_iam_policy_document" "terraform_permissions" {
       "sqs:*",        # Phase 2 — OneDrive replication
       "kms:*",        # Phase 3 — e-sign
       "secretsmanager:*", # Phase 2 — OAuth tokens
+      "ecr:*",        # Tesseract Container Image Lambda
     ]
     resources = ["*"]
   }

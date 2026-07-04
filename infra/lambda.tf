@@ -113,6 +113,20 @@ resource "aws_iam_role_policy" "processor" {
       },
       {
         Effect   = "Allow"
+        Action   = ["sqs:SendMessage"]
+        Resource = aws_sqs_queue.images_to_process.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+        ]
+        Resource = aws_sqs_queue.processed_images.arn
+      },
+      {
+        Effect   = "Allow"
         Action   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
         Resource = "${aws_s3_bucket.documents.arn}/*"
       },
@@ -196,6 +210,16 @@ resource "aws_lambda_event_source_mapping" "processor_sqs" {
   event_source_arn = aws_sqs_queue.updates.arn
   function_name    = aws_lambda_function.processor.arn
   batch_size       = 1
+
+  depends_on = [aws_iam_role_policy.processor]
+}
+
+resource "aws_lambda_event_source_mapping" "processor_processed_images" {
+  event_source_arn = aws_sqs_queue.processed_images.arn
+  function_name    = aws_lambda_function.processor.arn
+  batch_size       = 1
+
+  depends_on = [aws_iam_role_policy.processor]
 }
 
 # ---------------------------------------------------------------------------
