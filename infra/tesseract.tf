@@ -102,6 +102,13 @@ resource "aws_lambda_function" "tesseract_processor" {
   timeout     = 60
   memory_size = 1024
 
+  environment {
+    variables = {
+      DOCUMENTS_BUCKET           = aws_s3_bucket.documents.id
+      PROCESSED_IMAGES_QUEUE_URL = aws_sqs_queue.processed_images.url
+    }
+  }
+
   lifecycle {
     ignore_changes = [image_uri]
   }
