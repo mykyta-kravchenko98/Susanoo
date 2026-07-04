@@ -47,7 +47,7 @@ def process_image(raw_key: str) -> str:
 
     rotation = detect_rotation(img)
     if rotation:
-        img = img.rotate(-rotation, expand=True)
+        img = img.rotate(rotation, expand=True)
 
     img = downsample(img)
 
