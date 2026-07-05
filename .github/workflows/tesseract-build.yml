@@ -1,0 +1,27 @@
+﻿name: Tesseract Build Check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "tesseract/**"
+      - ".github/workflows/tesseract-build.yml"
+
+jobs:
+  build:
+    name: Build (no push)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python syntax check
+        run: python3 -m py_compile tesseract/app.py
+
+      - name: Build Docker image (validation only, not pushed)
+        run: |
+          docker build \
+            --provenance=false --sbom=false --platform linux/amd64 \
+            -t susanoo-tesseract-processor:pr-check \
+            ./tesseract
