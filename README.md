@@ -20,9 +20,10 @@ Also serves as a hands-on Platform Engineering / Cloud portfolio piece: serverle
 
 ## Demo
 
-<!-- TODO: replace with fresh screenshots of a real successful run — photo → "Photo added" with buttons → correct classification preview → "Saved to the archive" -->
-
-*(screenshots of the Telegram flow to be added here)*
+<p align="center">
+  <img src="docs/screenshot-flow-1.png" alt="Bot flow: photo captured, classification preview" width="380">
+  <img src="docs/screenshot-flow-2.png" alt="Bot flow: saved to archive" width="380">
+</p>
 
 ---
 
@@ -88,20 +89,20 @@ Two independently deployed Lambda functions consume the **same** `processor` cod
 
 ## Tech stack
 
-| Layer | Choice                                                                                         |
-|---|------------------------------------------------------------------------------------------------|
-| Language (bot logic) | Go 1.26                                                                                        |
-| Language (image preprocessing) | Python 3.12                                                                                    |
-| Compute | AWS Lambda (arm64 for Go, x86_64 container image for Python)                                   |
-| Messaging | Amazon SQS (multi-stage pipeline, dead-letter queues)                                          |
-| Storage | Amazon S3, Amazon DynamoDB (with GSIs)                                                         |
-| Secrets | AWS Secrets Manager                                                                            |
-| AI | Claude Haiku 4.5 (vision, prompt caching)                                                      |
-| OCR / image | Tesseract OSD, Pillow                                                                          |
-| PDF | [pdfcpu](https://github.com/pdfcpu/pdfcpu) (pure Go)                                           |
-| IaC | Terraform                                                                                      |
+| Layer | Choice |
+|---|---|
+| Language (bot logic) | Go 1.24 |
+| Language (image preprocessing) | Python 3.12 |
+| Compute | AWS Lambda (arm64 for Go, x86_64 container image for Python) |
+| Messaging | Amazon SQS (multi-stage pipeline, dead-letter queues) |
+| Storage | Amazon S3, Amazon DynamoDB (with GSIs) |
+| Secrets | AWS Secrets Manager |
+| AI | Claude Haiku 4.5 (vision, prompt caching) |
+| OCR / image | Tesseract OSD, Pillow |
+| PDF | [pdfcpu](https://github.com/pdfcpu/pdfcpu) (pure Go) |
+| IaC | Terraform |
 | CI/CD | GitHub Actions (OIDC, no static AWS keys), separate pipelines for infra / Go / container image |
-| Container registry | Amazon ECR                                                                                     |
+| Container registry | Amazon ECR |
 
 ---
 
