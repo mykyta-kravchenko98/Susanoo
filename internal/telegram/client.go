@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/mykyta-kravchenko98/Susanoo/internal/helper"
 )
 
 const apiBaseURL = "https://api.telegram.org"
@@ -15,14 +18,16 @@ const apiBaseURL = "https://api.telegram.org"
 type Client struct {
 	token      string
 	httpClient *http.Client
+	logger     *slog.Logger
 }
 
-func NewClient(token string) *Client {
+func NewClient(token string, logger *slog.Logger) *Client {
 	return &Client{
 		token: token,
 		httpClient: &http.Client{
 			Timeout: 20 * time.Second,
 		},
+		logger: logger,
 	}
 }
 
@@ -49,7 +54,7 @@ func (c *Client) GetFilePath(ctx context.Context, fileID string) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("call getFile: %w", err)
 	}
-	defer resp.Body.Close()
+	defer helper.Close(c.logger, resp.Body)
 
 	var parsed getFileResponse
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
@@ -73,7 +78,7 @@ func (c *Client) DownloadFile(ctx context.Context, filePath string) ([]byte, err
 	if err != nil {
 		return nil, fmt.Errorf("download file: %w", err)
 	}
-	defer resp.Body.Close()
+	defer helper.Close(c.logger, resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download file: unexpected status %d", resp.StatusCode)
@@ -126,7 +131,7 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, text string, but
 	if err != nil {
 		return fmt.Errorf("call sendMessage: %w", err)
 	}
-	defer resp.Body.Close()
+	defer helper.Close(c.logger, resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
@@ -149,6 +154,6 @@ func (c *Client) AnswerCallbackQuery(ctx context.Context, callbackQueryID string
 	if err != nil {
 		return fmt.Errorf("call answerCallbackQuery: %w", err)
 	}
-	defer resp.Body.Close()
+	defer helper.Close(c.logger, resp.Body)
 	return nil
 }
