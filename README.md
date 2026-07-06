@@ -6,6 +6,7 @@
 
 <p align="center">
   <img src="https://github.com/mykyta-kravchenko98/Susanoo/actions/workflows/go-build.yml/badge.svg" alt="Go Build">
+  <img src="https://github.com/mykyta-kravchenko98/Susanoo/actions/workflows/integration-tests.yml/badge.svg" alt="Integration Tests">
   <img src="https://github.com/mykyta-kravchenko98/Susanoo/actions/workflows/tesseract-build.yml/badge.svg" alt="Tesseract Build Check">
   <img src="https://github.com/mykyta-kravchenko98/Susanoo/actions/workflows/terraform.yml/badge.svg" alt="Terraform Plan/Apply">
 </p>
