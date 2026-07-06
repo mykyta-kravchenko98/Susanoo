@@ -120,8 +120,7 @@ func (s *Store) MarkAwaitingProcessing(ctx context.Context, chatID int64) (*Sess
 		ReturnValues: types.ReturnValueAllNew,
 	})
 	if err != nil {
-		var condErr *types.ConditionalCheckFailedException
-		if errors.As(err, &condErr) {
+		if _, ok := errors.AsType[*types.ConditionalCheckFailedException](err); ok {
 			return nil, ErrAlreadyProcessing
 		}
 		return nil, fmt.Errorf("mark session awaiting processing: %w", err)
@@ -155,8 +154,7 @@ func (s *Store) MarkSaving(ctx context.Context, chatID int64) (*Session, error) 
 		ReturnValues: types.ReturnValueAllNew,
 	})
 	if err != nil {
-		var condErr *types.ConditionalCheckFailedException
-		if errors.As(err, &condErr) {
+		if _, ok := errors.AsType[*types.ConditionalCheckFailedException](err); ok {
 			return nil, ErrNotPending
 		}
 		return nil, fmt.Errorf("mark session saving: %w", err)
