@@ -1,10 +1,11 @@
-﻿run:
+﻿version: "2"
+
+run:
   timeout: 5m
 
 linters:
   enable:
     - errcheck    # unhandled errors (returning err without checking)
-    - gosimple    # code that can be simplified but is overly complex
     - govet
     - ineffassign # assignments that change nothing (the value is not used)
     - staticcheck # the most extensive set of static checks, covering many bugs
