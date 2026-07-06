@@ -1,4 +1,4 @@
-﻿package main
+package main
 
 import (
 	"context"
@@ -67,16 +67,17 @@ func buildApp(ctx context.Context) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetch anthropic api key: %w", err)
 	}
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 	return &App{
 		sessions:           session.NewStore(dynamodb.NewFromConfig(cfg), sessionsTable),
-		docs:               storage.NewDocumentStore(s3.NewFromConfig(cfg), documentsBucket),
+		docs:               storage.NewDocumentStore(s3.NewFromConfig(cfg), documentsBucket, logger),
 		letters:            letters.NewStore(dynamodb.NewFromConfig(cfg), lettersTable),
 		llmClient:          llm.NewClient(anthropicKey),
-		telegramClient:     telegram.NewClient(tgToken),
+		telegramClient:     telegram.NewClient(tgToken, logger),
 		sqsClient:          sqs.NewFromConfig(cfg),
 		imagesToProcessURL: imagesToProcessURL,
-		logger:             slog.New(slog.NewJSONHandler(os.Stdout, nil)),
+		logger:             logger,
 	}, nil
 }
 

@@ -5,18 +5,21 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/mykyta-kravchenko98/Susanoo/internal/helper"
 )
 
 type DocumentStore struct {
 	client *s3.Client
 	bucket string
+	logger *slog.Logger
 }
 
-func NewDocumentStore(client *s3.Client, bucket string) *DocumentStore {
-	return &DocumentStore{client: client, bucket: bucket}
+func NewDocumentStore(client *s3.Client, bucket string, logger *slog.Logger) *DocumentStore {
+	return &DocumentStore{client: client, bucket: bucket, logger: logger}
 }
 
 func (s *DocumentStore) PutRaw(ctx context.Context, key string, data []byte) error {
@@ -35,7 +38,7 @@ func (s *DocumentStore) GetObject(ctx context.Context, key string) ([]byte, erro
 	if err != nil {
 		return nil, fmt.Errorf("get object %s: %w", key, err)
 	}
-	defer out.Body.Close()
+	defer helper.Close(s.logger, out.Body)
 
 	data, err := io.ReadAll(out.Body)
 	if err != nil {

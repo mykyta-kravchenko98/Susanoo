@@ -35,8 +35,6 @@ func NewClient(apiKey string) *Client {
 	}
 }
 
-const maxRotationRetries = 1
-
 func (c *Client) ClassifyLetter(ctx context.Context, images [][]byte, receivedDate string) (*ExtractedFields, error) {
 	if len(images) == 0 {
 		return nil, fmt.Errorf("no images provided")
