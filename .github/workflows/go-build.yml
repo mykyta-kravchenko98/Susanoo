@@ -38,6 +38,3 @@ jobs:
 
       - name: Build processor (linux/arm64)
         run: GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/processor
-
-      - name: Build reminder-sender (linux/arm64)
-        run: GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/reminder-sender
