@@ -154,11 +154,6 @@ resource "aws_iam_role_policy" "processor" {
         ]
       },
       {
-        Effect   = "Allow"
-        Action   = ["events:PutEvents"]
-        Resource = "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:event-bus/default"
-      },
-      {
         Effect = "Allow"
         Action = [
           "logs:CreateLogGroup",
@@ -170,6 +165,11 @@ resource "aws_iam_role_policy" "processor" {
     ]
   })
 }
+
+# Deadline reminders (EventBridge Scheduler, not the old EventBridge Events
+# PutEvents API - see infra/reminders.tf) get their own aws_iam_role_policy
+# resource, aws_iam_role_policy.processor_scheduler, attached to this same
+# role.
 
 resource "aws_lambda_function" "processor" {
   function_name = "${var.project_name}-processor"
@@ -194,6 +194,9 @@ resource "aws_lambda_function" "processor" {
       ANTHROPIC_KEY_SECRET  = aws_secretsmanager_secret.anthropic_api_key.name
       IMAGES_TO_PROCESS_QUEUE_URL = aws_sqs_queue.images_to_process.url
       TRANSLATE_TARGET_LANG = "ru"
+      REMINDER_LAMBDA_ARN   = aws_lambda_function.reminder_sender.arn
+      SCHEDULER_ROLE_ARN    = aws_iam_role.scheduler_execution.arn
+      SCHEDULE_GROUP_NAME   = aws_scheduler_schedule_group.reminders.name
     }
   }
 

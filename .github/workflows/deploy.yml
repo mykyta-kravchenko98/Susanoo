@@ -18,6 +18,7 @@ env:
   AWS_REGION: eu-central-1
   WEBHOOK_FUNCTION: susanoo-webhook-receiver
   PROCESSOR_FUNCTION: susanoo-processor
+  REMINDER_FUNCTION: susanoo-reminder-sender
 
 jobs:
   deploy:
@@ -36,17 +37,22 @@ jobs:
 
       - name: Build webhook binary (linux/arm64)
         run: |
-          mkdir -p dist/webhook dist/processor
+          mkdir -p dist/webhook dist/processor dist/reminder-sender
           GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o dist/webhook/bootstrap ./cmd/webhook
 
       - name: Build processor binary (linux/arm64)
         run: |
           GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o dist/processor/bootstrap ./cmd/processor
 
+      - name: Build reminder-sender binary (linux/arm64)
+        run: |
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o dist/reminder-sender/bootstrap ./cmd/reminder-sender
+
       - name: Zip artifacts
         run: |
           cd dist/webhook && zip -j ../webhook.zip bootstrap && cd ../..
           cd dist/processor && zip -j ../processor.zip bootstrap && cd ../..
+          cd dist/reminder-sender && zip -j ../reminder-sender.zip bootstrap && cd ../..
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -78,4 +84,17 @@ jobs:
         run: |
           aws lambda wait function-updated-v2 \
             --function-name "${{ env.PROCESSOR_FUNCTION }}" \
+            --region "${{ env.AWS_REGION }}"
+
+      - name: Deploy reminder-sender
+        run: |
+          aws lambda update-function-code \
+            --function-name "${{ env.REMINDER_FUNCTION }}" \
+            --zip-file fileb://dist/reminder-sender.zip \
+            --region "${{ env.AWS_REGION }}"
+
+      - name: Wait for reminder-sender update to finish
+        run: |
+          aws lambda wait function-updated-v2 \
+            --function-name "${{ env.REMINDER_FUNCTION }}" \
             --region "${{ env.AWS_REGION }}"
