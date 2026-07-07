@@ -1,4 +1,4 @@
-﻿package main
+package main
 
 import (
 	"context"
@@ -18,6 +18,7 @@ import (
 	"github.com/mykyta-kravchenko98/Susanoo/internal/llm"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/messages"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/pdfbuilder"
+	"github.com/mykyta-kravchenko98/Susanoo/internal/reminders"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/session"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/telegram"
 )
@@ -314,8 +315,32 @@ func (a *App) handleConfirmSave(ctx context.Context, chatID int64) error {
 		return fmt.Errorf("save letter metadata: %w", err)
 	}
 
-	// TODO: next iteration — if fields.Deadline != nil and the deadline is not in the past,
-	// create an EventBridge reminder (requires a separate Lambda for sending + Scheduler).
+	if fields.Deadline != nil {
+		if deadline, parseErr := time.Parse("2006-01-02", *fields.Deadline); parseErr == nil {
+			plan := reminders.Plan(deadline, time.Now().UTC(), fields.Urgency)
+			if len(plan) > 0 {
+				payload := reminders.Payload{
+					ChatID:           chatID,
+					LetterID:         letterID,
+					Organization:     fields.Organization,
+					DocType:          fields.DocType,
+					Deadline:         *fields.Deadline,
+					ActionRequiredRU: fields.ActionRequiredRU,
+				}
+				if err := a.reminderScheduler.ScheduleAll(ctx, letterID, payload, plan); err != nil {
+					// The letter itself is already saved successfully at this
+					// point — a failed reminder schedule shouldn't roll that
+					// back or fail the whole Save flow, just get logged so
+					// it's visible in CloudWatch.
+					a.logger.WarnContext(ctx, "failed to schedule deadline reminders",
+						slog.String("letter_id", letterID), slog.String("error", err.Error()))
+				}
+			}
+		} else {
+			a.logger.WarnContext(ctx, "could not parse deadline date, skipping reminder scheduling",
+				slog.String("deadline", *fields.Deadline), slog.String("error", parseErr.Error()))
+		}
+	}
 
 	if err := a.sessions.Clear(ctx, chatID); err != nil {
 		a.logger.WarnContext(ctx, "failed to clear session after save", slog.String("error", err.Error()))

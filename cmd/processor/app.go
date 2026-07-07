@@ -9,11 +9,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/scheduler"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 
+	"github.com/mykyta-kravchenko98/Susanoo/internal/helper"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/letters"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/llm"
+	"github.com/mykyta-kravchenko98/Susanoo/internal/reminders"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/session"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/storage"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/telegram"
@@ -42,6 +45,7 @@ type App struct {
 	telegramClient     TelegramClient
 	sqsClient          SQSSender
 	imagesToProcessURL string
+	reminderScheduler  *reminders.Scheduler
 	logger             *slog.Logger
 }
 
@@ -51,19 +55,22 @@ func buildApp(ctx context.Context) (*App, error) {
 		return nil, fmt.Errorf("load AWS config: %w", err)
 	}
 
-	sessionsTable := mustEnv("SESSIONS_TABLE")
-	documentsBucket := mustEnv("DOCUMENTS_BUCKET")
-	lettersTable := mustEnv("LETTERS_TABLE")
-	imagesToProcessURL := mustEnv("IMAGES_TO_PROCESS_QUEUE_URL")
+	sessionsTable := helper.MustEnv("SESSIONS_TABLE")
+	documentsBucket := helper.MustEnv("DOCUMENTS_BUCKET")
+	lettersTable := helper.MustEnv("LETTERS_TABLE")
+	imagesToProcessURL := helper.MustEnv("IMAGES_TO_PROCESS_QUEUE_URL")
+	reminderLambdaArn := helper.MustEnv("REMINDER_LAMBDA_ARN")
+	schedulerRoleArn := helper.MustEnv("SCHEDULER_ROLE_ARN")
+	scheduleGroupName := helper.MustEnv("SCHEDULE_GROUP_NAME")
 
 	smClient := secretsmanager.NewFromConfig(cfg)
 
-	tgToken, err := fetchSecret(ctx, smClient, mustEnv("TELEGRAM_TOKEN_SECRET"))
+	tgToken, err := helper.FetchSecret(ctx, smClient, helper.MustEnv("TELEGRAM_TOKEN_SECRET"))
 	if err != nil {
 		return nil, fmt.Errorf("fetch telegram token: %w", err)
 	}
 
-	anthropicKey, err := fetchSecret(ctx, smClient, mustEnv("ANTHROPIC_KEY_SECRET"))
+	anthropicKey, err := helper.FetchSecret(ctx, smClient, helper.MustEnv("ANTHROPIC_KEY_SECRET"))
 	if err != nil {
 		return nil, fmt.Errorf("fetch anthropic api key: %w", err)
 	}
@@ -77,27 +84,7 @@ func buildApp(ctx context.Context) (*App, error) {
 		telegramClient:     telegram.NewClient(tgToken, logger),
 		sqsClient:          sqs.NewFromConfig(cfg),
 		imagesToProcessURL: imagesToProcessURL,
+		reminderScheduler:  reminders.NewScheduler(scheduler.NewFromConfig(cfg), scheduleGroupName, reminderLambdaArn, schedulerRoleArn),
 		logger:             logger,
 	}, nil
-}
-
-func mustEnv(key string) string {
-	v := os.Getenv(key)
-	if v == "" {
-		panic(fmt.Sprintf("%s env var is not set", key))
-	}
-	return v
-}
-
-func fetchSecret(ctx context.Context, client *secretsmanager.Client, secretName string) (string, error) {
-	out, err := client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
-		SecretId: &secretName,
-	})
-	if err != nil {
-		return "", fmt.Errorf("get secret %s: %w", secretName, err)
-	}
-	if out.SecretString == nil {
-		return "", fmt.Errorf("secret %s has no string value", secretName)
-	}
-	return *out.SecretString, nil
 }

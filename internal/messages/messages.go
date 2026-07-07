@@ -73,3 +73,37 @@ func ClassificationPreview(organization, docType, summaryRU string, actionRequir
 
 	return b.String()
 }
+
+// reminderLeadIn maps a reminders.ReminderKind (passed as a plain string so
+// this package doesn't need to import internal/reminders) to the headline
+// shown at the top of a deadline reminder message. Keys match the ReminderKind
+// constants in internal/reminders/plan.go — keep them in sync.
+var reminderLeadIn = map[string]string{
+	"advance_7d": "📅 Deadline in a week",
+	"advance_3d": "📅 The deadline is in three days.",
+	"advance_1d": "⏰ The deadline is tomorrow.",
+	"due_day":    "🔴 Today is the deadline.",
+}
+
+// DeadlineReminder formats the message sent by the reminder-sender Lambda
+// when one of the scheduled reminders fires. kind is the wire value of
+// reminders.ReminderKind (e.g. "advance_7d"); an unrecognized kind falls back
+// to a generic headline rather than failing, since a slightly worse headline
+// is much better than silently dropping the reminder.
+func DeadlineReminder(kind, organization, docType, deadline string, actionRequiredRU *string) string {
+	var b strings.Builder
+
+	leadIn, ok := reminderLeadIn[kind]
+	if !ok {
+		leadIn = "⏰ Deadline reminder"
+	}
+
+	fmt.Fprintf(&b, "%s: %s\n", leadIn, deadline)
+	fmt.Fprintf(&b, "📄 %s — %s\n", docType, organization)
+
+	if actionRequiredRU != nil && *actionRequiredRU != "" {
+		fmt.Fprintf(&b, "\n☑️ %s", *actionRequiredRU)
+	}
+
+	return b.String()
+}
