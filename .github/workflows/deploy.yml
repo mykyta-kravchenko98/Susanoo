@@ -36,7 +36,7 @@ jobs:
 
       - name: Build webhook binary (linux/arm64)
         run: |
-          mkdir -p dist/webhook dist/processor
+          mkdir -p dist/webhook dist/processor dist/reminder-sender
           GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o dist/webhook/bootstrap ./cmd/webhook
 
       - name: Build processor binary (linux/arm64)

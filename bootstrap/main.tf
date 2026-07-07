@@ -158,6 +158,7 @@ data "aws_iam_policy_document" "terraform_permissions" {
       "kms:*",        # Phase 3 — e-sign
       "secretsmanager:*", # Phase 2 — OAuth tokens
       "ecr:*",        # Tesseract Container Image Lambda
+      "scheduler:*",
     ]
     resources = ["*"]
   }
