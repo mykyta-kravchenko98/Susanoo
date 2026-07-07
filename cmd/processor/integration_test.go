@@ -43,6 +43,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/localstack"
 
 	"github.com/mykyta-kravchenko98/Susanoo/internal/letters"
+	"github.com/mykyta-kravchenko98/Susanoo/internal/reminders"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/session"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/storage"
 )
@@ -201,6 +202,11 @@ func discardLogger() *slog.Logger {
 // caller-supplied fake Telegram/LLM clients. All tests share the same
 // DynamoDB tables / S3 bucket / SQS queue (recreating them per test would be
 // slow), so tests must use nextChatID() to keep their data from colliding.
+//
+// reminderScheduler is backed by a throwaway fakeSchedulerAPI rather than
+// real EventBridge Scheduler — no current test needs to assert on scheduled
+// reminders, this just keeps App.reminderScheduler non-nil so any test whose
+// classification happens to include a future deadline doesn't nil-panic.
 func newTestApp(tg *fakeTelegramClient, llmClient *fakeLLMClassifier) *App {
 	logger := discardLogger()
 	return &App{
@@ -211,6 +217,7 @@ func newTestApp(tg *fakeTelegramClient, llmClient *fakeLLMClassifier) *App {
 		telegramClient:     tg,
 		sqsClient:          testEnv.sqs,
 		imagesToProcessURL: testEnv.imagesToProcessURL,
+		reminderScheduler:  reminders.NewScheduler(&fakeSchedulerAPI{}, "test-reminders", "arn:aws:lambda:eu-central-1:000000000000:function:test-reminder-sender", "arn:aws:iam::000000000000:role/test-scheduler"),
 		logger:             logger,
 	}
 }

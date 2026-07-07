@@ -6,6 +6,8 @@ import (
 	"context"
 	"sync"
 
+	"github.com/aws/aws-sdk-go-v2/service/scheduler"
+
 	"github.com/mykyta-kravchenko98/Susanoo/internal/llm"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/telegram"
 )
@@ -92,4 +94,32 @@ func (f *fakeLLMClassifier) callCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.calls
+}
+
+// fakeSchedulerAPI satisfies reminders.SchedulerAPI without calling real
+// EventBridge Scheduler (LocalStack's community image doesn't reliably cover
+// the scheduler service, and this only needs to prove handleConfirmSave calls
+// ScheduleAll with the right shape, not that AWS itself accepts the request).
+type fakeSchedulerAPI struct {
+	mu    sync.Mutex
+	calls []*scheduler.CreateScheduleInput
+	err   error
+}
+
+func (f *fakeSchedulerAPI) CreateSchedule(_ context.Context, params *scheduler.CreateScheduleInput, _ ...func(*scheduler.Options)) (*scheduler.CreateScheduleOutput, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, params)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &scheduler.CreateScheduleOutput{}, nil
+}
+
+func (f *fakeSchedulerAPI) createScheduleCalls() []*scheduler.CreateScheduleInput {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]*scheduler.CreateScheduleInput, len(f.calls))
+	copy(out, f.calls)
+	return out
 }
