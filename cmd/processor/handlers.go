@@ -72,6 +72,8 @@ func (a *App) handleTelegramUpdate(ctx context.Context, update *telegram.Update)
 	switch {
 	case update.CallbackQuery != nil:
 		return a.handleCallback(ctx, update.CallbackQuery)
+	case update.Message != nil && strings.HasPrefix(strings.TrimSpace(update.Message.Text), "/"):
+		return a.dispatchCommand(ctx, update.Message)
 	case update.Message != nil && len(update.Message.Photo) > 0:
 		return a.handlePhoto(ctx, update.Message)
 	case update.Message != nil:

@@ -107,3 +107,27 @@ func DeadlineReminder(kind, organization, docType, deadline string, actionRequir
 
 	return b.String()
 }
+
+// CommandInfo is one entry in the bot's command menu - shared between the
+// /help text and the payload sent to Telegram's setMyCommands so there's a
+// single source of truth (see cmd/processor/commands.go).
+type CommandInfo struct {
+	Name        string
+	Description string
+}
+
+// HelpText renders the /help message listing every registered command.
+func HelpText(cmds []CommandInfo) string {
+	var b strings.Builder
+	b.WriteString("Available commands:\n\n")
+	for _, c := range cmds {
+		fmt.Fprintf(&b, "/%s — %s\n", c.Name, c.Description)
+	}
+	return b.String()
+}
+
+// UnknownCommand is sent when the user types a "/"-prefixed message that
+// doesn't match any registered command.
+func UnknownCommand(name string) string {
+	return fmt.Sprintf("Unknown command: /%s. Send /help to see what I understand.", name)
+}

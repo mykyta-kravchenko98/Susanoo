@@ -27,6 +27,7 @@ type TelegramClient interface {
 	GetFilePath(ctx context.Context, fileID string) (string, error)
 	DownloadFile(ctx context.Context, filePath string) ([]byte, error)
 	AnswerCallbackQuery(ctx context.Context, callbackQueryID string) error
+	SetMyCommands(ctx context.Context, commands []telegram.BotCommand) error
 }
 
 type LLMClassifier interface {
@@ -76,7 +77,7 @@ func buildApp(ctx context.Context) (*App, error) {
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	return &App{
+	app := &App{
 		sessions:           session.NewStore(dynamodb.NewFromConfig(cfg), sessionsTable),
 		docs:               storage.NewDocumentStore(s3.NewFromConfig(cfg), documentsBucket, logger),
 		letters:            letters.NewStore(dynamodb.NewFromConfig(cfg), lettersTable),
@@ -86,5 +87,11 @@ func buildApp(ctx context.Context) (*App, error) {
 		imagesToProcessURL: imagesToProcessURL,
 		reminderScheduler:  reminders.NewScheduler(scheduler.NewFromConfig(cfg), scheduleGroupName, reminderLambdaArn, schedulerRoleArn),
 		logger:             logger,
-	}, nil
+	}
+
+	if err := app.telegramClient.SetMyCommands(ctx, botCommands()); err != nil {
+		app.logger.WarnContext(ctx, "failed to register bot commands", slog.String("error", err.Error()))
+	}
+
+	return app, nil
 }

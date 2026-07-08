@@ -48,6 +48,10 @@ func (f *fakeTelegramClient) AnswerCallbackQuery(_ context.Context, _ string) er
 	return nil
 }
 
+func (f *fakeTelegramClient) SetMyCommands(_ context.Context, _ []telegram.BotCommand) error {
+	return nil
+}
+
 func (f *fakeTelegramClient) messages() []sentMessage {
 	f.mu.Lock()
 	defer f.mu.Unlock()
