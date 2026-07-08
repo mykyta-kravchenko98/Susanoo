@@ -124,22 +124,9 @@ resource "aws_dynamodb_table" "letters" {
     type = "S"
   }
 
-  # GSI for request "all leater for organization X date range"
-  attribute {
-    name = "organization"
-    type = "S"
-  }
-
   attribute {
     name = "received_date"
     type = "S" # ISO 8601,
-  }
-
-  global_secondary_index {
-    name            = "organization-received_date-index"
-    hash_key        = "organization"
-    range_key       = "received_date"
-    projection_type = "ALL"
   }
 
   attribute {
@@ -151,6 +138,18 @@ resource "aws_dynamodb_table" "letters" {
     name            = "chat_id-received_date-index"
     hash_key        = "chat_id"
     range_key       = "received_date"
+    projection_type = "ALL"
+  }
+
+  attribute {
+    name = "org_year"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "chat_id-org_year-index"
+    hash_key        = "chat_id"
+    range_key       = "org_year"
     projection_type = "ALL"
   }
 
