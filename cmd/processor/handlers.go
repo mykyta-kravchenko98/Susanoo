@@ -29,6 +29,15 @@ const (
 	callbackRestart     = "restart"
 	callbackConfirmSave = "confirm_save"
 	callbackRequestFix  = "request_fix"
+
+	// callbackRequestPDFPrefix and callbackDeleteLetterPrefix are followed
+	// directly by a letter_id (e.g. "pdf:3f9c..."), mirroring
+	// callbackViewLetterPrefix in commands.go. Wired up here on the letter
+	// detail view (handleViewLetter) ahead of their own handlers landing in
+	// a later PR - see the comment on callbackViewLetterPrefix for why that's
+	// fine.
+	callbackRequestPDFPrefix   = "pdf:"
+	callbackDeleteLetterPrefix = "delete:"
 )
 
 func (a *App) Handle(ctx context.Context, sqsEvent events.SQSEvent) error {
@@ -125,32 +134,66 @@ func (a *App) handleCallback(ctx context.Context, cb *telegram.CallbackQuery) er
 
 	chatID := cb.Message.Chat.ID
 
-	switch cb.Data {
-	case callbackAddMore:
+	switch {
+	case cb.Data == callbackAddMore:
 		return a.telegramClient.SendMessage(ctx, chatID, messages.AddMorePrompt)
 
-	case callbackRestart:
+	case cb.Data == callbackRestart:
 		if err := a.sessions.Clear(ctx, chatID); err != nil {
 			return fmt.Errorf("clear session on restart: %w", err)
 		}
 		return a.telegramClient.SendMessage(ctx, chatID, messages.SessionCleared)
 
-	case callbackDone:
+	case cb.Data == callbackDone:
 		return a.handleDone(ctx, chatID)
 
-	case callbackConfirmSave:
+	case cb.Data == callbackConfirmSave:
 		return a.handleConfirmSave(ctx, chatID)
 
-	case callbackRequestFix:
+	case cb.Data == callbackRequestFix:
 		if err := a.sessions.Clear(ctx, chatID); err != nil {
 			return fmt.Errorf("clear session on fix: %w", err)
 		}
 		return a.telegramClient.SendMessage(ctx, chatID, messages.RequestFixPrompt)
 
+	case strings.HasPrefix(cb.Data, callbackViewLetterPrefix):
+		letterID := strings.TrimPrefix(cb.Data, callbackViewLetterPrefix)
+		return a.handleViewLetter(ctx, chatID, letterID)
+
 	default:
 		a.logger.WarnContext(ctx, "unknown callback data", slog.String("data", cb.Data))
 		return nil
 	}
+}
+
+func (a *App) handleViewLetter(ctx context.Context, chatID int64, letterID string) error {
+	letter, err := a.letters.Get(ctx, letterID)
+	if err != nil {
+		if errors.Is(err, letters.ErrNotFound) {
+			return a.telegramClient.SendMessage(ctx, chatID, messages.LetterNotFound)
+		}
+		return fmt.Errorf("get letter %s: %w", letterID, err)
+	}
+
+	if letter.ChatID != chatID {
+		a.logger.WarnContext(ctx, "chat_id mismatch on view letter callback",
+			slog.String("letter_id", letterID),
+			slog.Int64("requesting_chat_id", chatID),
+			slog.Int64("letter_chat_id", letter.ChatID))
+		return a.telegramClient.SendMessage(ctx, chatID, messages.LetterNotFound)
+	}
+
+	if letter.Status == letters.StatusPendingDeletion {
+		return a.telegramClient.SendMessage(ctx, chatID, messages.LetterNotFound)
+	}
+
+	text := messages.LetterDetail(letter.ReceivedDate, letter.Organization, letter.DocType,
+		letter.SummaryRU, letter.Deadline, letter.ActionRequiredRU)
+
+	return a.telegramClient.SendMessage(ctx, chatID, text,
+		telegram.InlineButton{Text: messages.ButtonRequestPDF, CallbackData: callbackRequestPDFPrefix + letter.LetterID},
+		telegram.InlineButton{Text: messages.ButtonDeleteLetter, CallbackData: callbackDeleteLetterPrefix + letter.LetterID},
+	)
 }
 
 func (a *App) handleDone(ctx context.Context, chatID int64) error {

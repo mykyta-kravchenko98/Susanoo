@@ -16,6 +16,7 @@ type sentMessage struct {
 	chatID  int64
 	text    string
 	buttons []telegram.InlineButton
+	rows    [][]telegram.InlineButton
 }
 
 // fakeTelegramClient satisfies the TelegramClient interface without making
@@ -33,6 +34,13 @@ func (f *fakeTelegramClient) SendMessage(_ context.Context, chatID int64, text s
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sent = append(f.sent, sentMessage{chatID: chatID, text: text, buttons: buttons})
+	return nil
+}
+
+func (f *fakeTelegramClient) SendMessageWithRows(_ context.Context, chatID int64, text string, rows [][]telegram.InlineButton) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sent = append(f.sent, sentMessage{chatID: chatID, text: text, rows: rows})
 	return nil
 }
 

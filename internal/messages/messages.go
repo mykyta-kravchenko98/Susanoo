@@ -43,6 +43,23 @@ const (
 
 	LetterSaved = "Saved to the archive. ✅"
 	SaveFailed  = "Something went wrong while saving. Please press \"🔄 Start over\" and resend the photos."
+
+	// ArchiveEmpty is sent by /archive when a chat has no saved letters
+	// (either none confirmed yet, or all currently pending deletion).
+	ArchiveEmpty = "You don't have any saved letters yet."
+
+	// ArchiveHeader precedes the list of one-button-per-letter rows sent by
+	// /archive.
+	ArchiveHeader = "Your saved letters:"
+
+	// LetterNotFound covers both a genuinely missing letter_id and a letter
+	// that's currently pending deletion - from the user's point of view
+	// those look the same ("I can't see it anymore"), so there's no need to
+	// leak the distinction.
+	LetterNotFound = "Couldn't find that letter — it may have been deleted."
+
+	ButtonRequestPDF   = "📎 Request PDF"
+	ButtonDeleteLetter = "🗑 Delete"
 )
 
 func PhotoAdded(pageCount int) string {
@@ -130,4 +147,49 @@ func HelpText(cmds []CommandInfo) string {
 // doesn't match any registered command.
 func UnknownCommand(name string) string {
 	return fmt.Sprintf("Unknown command: /%s. Send /help to see what I understand.", name)
+}
+
+// maxButtonLabelRunes keeps /archive's per-letter button labels well under
+// Telegram's inline button text limit, leaving headroom for the date/dash
+// formatting around the organization and doc type.
+const maxButtonLabelRunes = 60
+
+// LetterButtonLabel formats the label for one /archive list row, e.g.
+// "2026-07-01 · Finanzamt Berlin — Steuerbescheid", truncated if the
+// organization/doc type combination runs long.
+func LetterButtonLabel(receivedDate, organization, docType string) string {
+	label := fmt.Sprintf("%s · %s — %s", receivedDate, organization, docType)
+
+	runes := []rune(label)
+	if len(runes) > maxButtonLabelRunes {
+		label = string(runes[:maxButtonLabelRunes-1]) + "…"
+	}
+	return label
+}
+
+// LetterDetail renders the message shown when a letter is opened from
+// /archive's list (see handleViewLetter). deadline and actionRequiredRU are
+// plain strings here (not *string, unlike ClassificationPreview) because
+// they come from the already-saved letters.Letter, where an empty string -
+// not a nil pointer - means "none".
+func LetterDetail(receivedDate, organization, docType, summaryRU, deadline, actionRequiredRU string) string {
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "📄 %s\n", docType)
+	fmt.Fprintf(&b, "From: %s\n", organization)
+	fmt.Fprintf(&b, "Received: %s\n\n", receivedDate)
+
+	if summaryRU != "" {
+		fmt.Fprintf(&b, "%s\n\n", summaryRU)
+	}
+
+	if deadline != "" {
+		fmt.Fprintf(&b, "⏰ Deadline: %s\n", deadline)
+	}
+
+	if actionRequiredRU != "" {
+		fmt.Fprintf(&b, "☑️ Action required: %s\n", actionRequiredRU)
+	}
+
+	return b.String()
 }
