@@ -74,6 +74,40 @@ resource "aws_s3_bucket_lifecycle_configuration" "documents" {
       noncurrent_days = 7
     }
   }
+
+  rule {
+    id     = "expire-unsorted-pdfs"
+    status = "Enabled"
+
+    filter {
+      prefix = "Unsorted/"
+    }
+
+    expiration {
+      days = 7
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 7
+    }
+  }
+
+  rule {
+    id     = "expire-pending-deletion-pdfs"
+    status = "Enabled"
+
+    filter {
+      prefix = "PendingDeletion/"
+    }
+
+    expiration {
+      days = 30
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 30
+    }
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -118,6 +152,18 @@ resource "aws_dynamodb_table" "letters" {
     hash_key        = "chat_id"
     range_key       = "received_date"
     projection_type = "ALL"
+  }
+
+  # Used for soft-deleted letters: on delete, the app sets status=pending_deletion
+  # and expires_at = now + 30 days (mirroring the PDF's PendingDeletion/ S3
+  # lifecycle rule above), so the DynamoDB item is cleaned up automatically once
+  # the grace period ends. Note DynamoDB TTL deletion is a background process
+  # that isn't instant (AWS documents up to ~48h after expiry) and, critically,
+  # it does NOT filter query results before that - application code must filter
+  # on status/deleted_at itself, not rely on TTL for visibility.
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
   }
 
   # prevent unexpected delete
