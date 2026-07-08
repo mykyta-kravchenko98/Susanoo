@@ -105,13 +105,25 @@ type sendMessageRequest struct {
 }
 
 func (c *Client) SendMessage(ctx context.Context, chatID int64, text string, buttons ...InlineButton) error {
+	var rows [][]InlineButton
+	if len(buttons) > 0 {
+		rows = [][]InlineButton{buttons}
+	}
+	return c.sendMessage(ctx, chatID, text, rows)
+}
+
+func (c *Client) SendMessageWithRows(ctx context.Context, chatID int64, text string, rows [][]InlineButton) error {
+	return c.sendMessage(ctx, chatID, text, rows)
+}
+
+func (c *Client) sendMessage(ctx context.Context, chatID int64, text string, rows [][]InlineButton) error {
 	reqBody := sendMessageRequest{ChatID: chatID, Text: text}
 
-	if len(buttons) > 0 {
+	if len(rows) > 0 {
 		reqBody.ReplyMarkup = &struct {
 			InlineKeyboard [][]InlineButton `json:"inline_keyboard"`
 		}{
-			InlineKeyboard: [][]InlineButton{buttons},
+			InlineKeyboard: rows,
 		}
 	}
 

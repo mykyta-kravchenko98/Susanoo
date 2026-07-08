@@ -36,7 +36,42 @@ func allCommands() []commandSpec {
 			description: "Show a short intro",
 			handler:     handleHelpCommand,
 		},
+		{
+			name:        "archive",
+			description: "List your saved letters",
+			handler:     handleArchiveCommand,
+		},
 	}
+}
+
+// archiveListLimit caps how many letters /archive shows at once. Each letter
+// is one button/row, and a Telegram message can't usefully carry hundreds of
+// rows - at this project's real volume (dozens of letters/month) a single
+// page comfortably covers everything relevant. Pagination is tracked as
+// backlog if that ever stops being true.
+const archiveListLimit = 20
+
+const callbackViewLetterPrefix = "view:"
+
+func handleArchiveCommand(ctx context.Context, a *App, msg *telegram.Message, _ []string) error {
+	list, err := a.letters.Query(ctx, msg.Chat.ID, archiveListLimit)
+	if err != nil {
+		return err
+	}
+
+	if len(list) == 0 {
+		return a.telegramClient.SendMessage(ctx, msg.Chat.ID, messages.ArchiveEmpty)
+	}
+
+	rows := make([][]telegram.InlineButton, 0, len(list))
+	for _, letter := range list {
+		label := messages.LetterButtonLabel(letter.ReceivedDate, letter.Organization, letter.DocType)
+		rows = append(rows, []telegram.InlineButton{
+			{Text: label, CallbackData: callbackViewLetterPrefix + letter.LetterID},
+		})
+	}
+
+	return a.telegramClient.SendMessageWithRows(ctx, msg.Chat.ID, messages.ArchiveHeader, rows)
 }
 
 // botCommands converts the registered commands into the shape Telegram's

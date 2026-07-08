@@ -4,11 +4,33 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
- 
+	"strconv"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
+
+// Status distinguishes normal letters from ones the user has deleted via the
+// bot but that are still within their 30-day soft-delete grace period (see
+// the PendingDeletion/ S3 prefix + expires_at TTL below, and MarkPendingDeletion).
+type Status string
+
+const (
+	StatusActive          Status = "active"
+	StatusPendingDeletion Status = "pending_deletion"
+)
+
+// ErrNotFound is returned by Get when no letter exists with the given ID.
+var ErrNotFound = errors.New("letter not found")
+
+// chatIDIndex is the GSI used by Query to list a chat's letters newest-first
+// (see infra/storage.tf: chat_id-received_date-index).
+const chatIDIndex = "chat_id-received_date-index"
 
 type Letter struct {
 	LetterID         string `dynamodbav:"letter_id"`
@@ -25,6 +47,9 @@ type Letter struct {
 	Urgency          string `dynamodbav:"urgency"`
 	S3Key            string `dynamodbav:"s3_key"`
 	CreatedAt        string `dynamodbav:"created_at"` // ISO 8601
+
+	Status    Status `dynamodbav:"status,omitempty"`
+	ExpiresAt int64  `dynamodbav:"expires_at,omitempty"`
 }
 type Store struct {
 	client    *dynamodb.Client
@@ -36,6 +61,10 @@ func NewStore(client *dynamodb.Client, tableName string) *Store {
 }
 
 func (s *Store) Put(ctx context.Context, letter Letter) error {
+	if letter.Status == "" {
+		letter.Status = StatusActive
+	}
+
 	item, err := attributevalue.MarshalMap(letter)
 	if err != nil {
 		return fmt.Errorf("marshal letter: %w", err)
@@ -51,9 +80,81 @@ func (s *Store) Put(ctx context.Context, letter Letter) error {
 	return nil
 }
 
-// NewLetterID generates a random letter identifier. It is not an RFC4122 UUID (to avoid
-// adding an extra dependency for just one function)—simply 16 random bytes in hex,
-// which is more than sufficient to ensure uniqueness for a volume of "dozens of letters per month."
+// Get fetches a single letter by ID, returning ErrNotFound if it doesn't
+// exist (or has already been reclaimed by TTL).
+func (s *Store) Get(ctx context.Context, letterID string) (*Letter, error) {
+	out, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName: &s.tableName,
+		Key: map[string]types.AttributeValue{
+			"letter_id": &types.AttributeValueMemberS{Value: letterID},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get letter %s: %w", letterID, err)
+	}
+	if out.Item == nil {
+		return nil, ErrNotFound
+	}
+
+	var letter Letter
+	if err := attributevalue.UnmarshalMap(out.Item, &letter); err != nil {
+		return nil, fmt.Errorf("unmarshal letter %s: %w", letterID, err)
+	}
+	return &letter, nil
+}
+
+func (s *Store) Query(ctx context.Context, chatID int64, limit int32) ([]Letter, error) {
+	out, err := s.client.Query(ctx, &dynamodb.QueryInput{
+		TableName:              &s.tableName,
+		IndexName:              aws.String(chatIDIndex),
+		KeyConditionExpression: aws.String("chat_id = :chat_id"),
+		FilterExpression:       aws.String("attribute_not_exists(#status) OR #status <> :pending_deletion"),
+		ExpressionAttributeNames: map[string]string{
+			"#status": "status",
+		},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":chat_id":          &types.AttributeValueMemberN{Value: strconv.FormatInt(chatID, 10)},
+			":pending_deletion": &types.AttributeValueMemberS{Value: string(StatusPendingDeletion)},
+		},
+		ScanIndexForward: aws.Bool(false), // newest received_date first
+		Limit:            aws.Int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query letters for chat %d: %w", chatID, err)
+	}
+
+	result := make([]Letter, 0, len(out.Items))
+	for _, item := range out.Items {
+		var letter Letter
+		if err := attributevalue.UnmarshalMap(item, &letter); err != nil {
+			return nil, fmt.Errorf("unmarshal letter item: %w", err)
+		}
+		result = append(result, letter)
+	}
+	return result, nil
+}
+
+func (s *Store) MarkPendingDeletion(ctx context.Context, letterID string, expiresAt time.Time) error {
+	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: &s.tableName,
+		Key: map[string]types.AttributeValue{
+			"letter_id": &types.AttributeValueMemberS{Value: letterID},
+		},
+		UpdateExpression: aws.String("SET #status = :status, expires_at = :expires_at"),
+		ExpressionAttributeNames: map[string]string{
+			"#status": "status",
+		},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":status":     &types.AttributeValueMemberS{Value: string(StatusPendingDeletion)},
+			":expires_at": &types.AttributeValueMemberN{Value: strconv.FormatInt(expiresAt.Unix(), 10)},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("mark letter %s pending deletion: %w", letterID, err)
+	}
+	return nil
+}
+
 func NewLetterID() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
