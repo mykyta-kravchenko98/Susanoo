@@ -140,6 +140,41 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, text string, but
 	return nil
 }
 
+type BotCommand struct {
+	Command     string `json:"command"`
+	Description string `json:"description"`
+}
+
+type setMyCommandsRequest struct {
+	Commands []BotCommand `json:"commands"`
+}
+
+func (c *Client) SetMyCommands(ctx context.Context, commands []BotCommand) error {
+	body, err := json.Marshal(setMyCommandsRequest{Commands: commands})
+	if err != nil {
+		return fmt.Errorf("marshal setMyCommands body: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.apiURL("setMyCommands"), bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build setMyCommands request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("call setMyCommands: %w", err)
+	}
+	defer helper.Close(c.logger, resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("setMyCommands failed: status %d, body: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
 func (c *Client) AnswerCallbackQuery(ctx context.Context, callbackQueryID string) error {
 	body, _ := json.Marshal(map[string]string{"callback_query_id": callbackQueryID})
 
