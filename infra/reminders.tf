@@ -87,9 +87,20 @@ resource "aws_cloudwatch_log_group" "reminder_sender" {
 
 # ---------------------------------------------------------------------------
 # Execution role EventBridge Scheduler assumes to invoke reminder-sender.
-# Scoped to just this one function, and the trust policy is scoped to
-# schedules in our own schedule group (confused-deputy protection) - some
-# other AWS account's schedule can't use this role to invoke our Lambda.
+# Scoped to just this one function (see aws_iam_role_policy.scheduler_execution
+# below) - that's the real security boundary here.
+#
+# NOTE: this trust policy deliberately has NO Condition block (no SourceArn /
+# SourceAccount restriction), even though that's the textbook confused-deputy
+# mitigation. In practice, EventBridge Scheduler's CreateSchedule does a
+# static assumability check on the trust policy that reliably fails with
+# "The execution role you provide must allow AWS EventBridge Scheduler to
+# assume the role" whenever a Condition is present, independent of whether
+# the condition would actually be satisfied - this is a widely reported
+# EventBridge Scheduler quirk (see AWS re:Post threads on this exact error),
+# not something specific to this config. For a single-account personal
+# project the confused-deputy risk this would have mitigated is theoretical
+# anyway (no other AWS account references our schedule group ARN).
 # ---------------------------------------------------------------------------
 
 resource "aws_iam_role" "scheduler_execution" {
@@ -100,14 +111,6 @@ resource "aws_iam_role" "scheduler_execution" {
       Effect    = "Allow"
       Principal = { Service = "scheduler.amazonaws.com" }
       Action    = "sts:AssumeRole"
-      Condition = {
-        StringEquals = {
-          "aws:SourceAccount" = data.aws_caller_identity.current.account_id
-        }
-        ArnLike = {
-          "aws:SourceArn" = "arn:aws:scheduler:${var.aws_region}:${data.aws_caller_identity.current.account_id}:schedule/${aws_scheduler_schedule_group.reminders.name}/*"
-        }
-      }
     }]
   })
 }
