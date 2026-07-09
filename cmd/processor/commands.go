@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -41,6 +42,11 @@ func allCommands() []commandSpec {
 			description: "List your saved letters",
 			handler:     handleArchiveCommand,
 		},
+		{
+			name:        "reminders",
+			description: "List your pending deadline reminders",
+			handler:     handleRemindersCommand,
+		},
 	}
 }
 
@@ -59,6 +65,40 @@ const callbackArchiveOrgPrefix = "archorg:"
 // "archyr:finanzamt-berlin:2026". The colon separator is safe because a
 // slug never contains one (see letters.SanitizeForKey).
 const callbackArchiveYearPrefix = "archyr:"
+
+const reminderCandidateLimit = 50
+
+func handleRemindersCommand(ctx context.Context, a *App, msg *telegram.Message, _ []string) error {
+	list, err := a.letters.Query(ctx, msg.Chat.ID, reminderCandidateLimit)
+	if err != nil {
+		return err
+	}
+
+	var rows [][]telegram.InlineButton
+	for _, letter := range list {
+		if letter.Deadline == "" {
+			continue
+		}
+
+		pending, err := a.reminderScheduler.ListForLetter(ctx, letter.LetterID)
+		if err != nil {
+			return fmt.Errorf("list schedules for letter %s: %w", letter.LetterID, err)
+		}
+
+		for _, r := range pending {
+			label := messages.ReminderButtonLabel(letter.Organization, letter.DocType, letter.Deadline, r.Kind)
+			rows = append(rows, []telegram.InlineButton{
+				{Text: label, CallbackData: callbackCancelReminderPrefix + r.Name},
+			})
+		}
+	}
+
+	if len(rows) == 0 {
+		return a.telegramClient.SendMessage(ctx, msg.Chat.ID, messages.RemindersEmpty)
+	}
+
+	return a.telegramClient.SendMessageWithRows(ctx, msg.Chat.ID, messages.RemindersHeader, rows)
+}
 
 // handleArchiveCommand is the top of /archive's organization -> year ->
 // letter drill-down: it lists the chat's distinct organizations. Tapping one

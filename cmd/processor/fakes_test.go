@@ -4,9 +4,12 @@ package main
 
 import (
 	"context"
+	"strings"
 	"sync"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/scheduler"
+	"github.com/aws/aws-sdk-go-v2/service/scheduler/types"
 
 	"github.com/mykyta-kravchenko98/Susanoo/internal/llm"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/telegram"
@@ -44,17 +47,17 @@ func (f *fakeTelegramClient) SendMessage(_ context.Context, chatID int64, text s
 	return nil
 }
 
-func (f *fakeTelegramClient) SendDocument(_ context.Context, chatID int64, filename string, data []byte) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.documents = append(f.documents, sentDocument{chatID: chatID, filename: filename, data: data})
-	return nil
-}
-
 func (f *fakeTelegramClient) SendMessageWithRows(_ context.Context, chatID int64, text string, rows [][]telegram.InlineButton) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sent = append(f.sent, sentMessage{chatID: chatID, text: text, rows: rows})
+	return nil
+}
+
+func (f *fakeTelegramClient) SendDocument(_ context.Context, chatID int64, filename string, data []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.documents = append(f.documents, sentDocument{chatID: chatID, filename: filename, data: data})
 	return nil
 }
 
@@ -79,6 +82,14 @@ func (f *fakeTelegramClient) messages() []sentMessage {
 	defer f.mu.Unlock()
 	out := make([]sentMessage, len(f.sent))
 	copy(out, f.sent)
+	return out
+}
+
+func (f *fakeTelegramClient) sentDocuments() []sentDocument {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]sentDocument, len(f.documents))
+	copy(out, f.documents)
 	return out
 }
 
@@ -127,9 +138,10 @@ func (f *fakeLLMClassifier) callCount() int {
 // the scheduler service, and this only needs to prove handleConfirmSave calls
 // ScheduleAll with the right shape, not that AWS itself accepts the request).
 type fakeSchedulerAPI struct {
-	mu    sync.Mutex
-	calls []*scheduler.CreateScheduleInput
-	err   error
+	mu      sync.Mutex
+	calls   []*scheduler.CreateScheduleInput
+	deleted map[string]bool
+	err     error
 }
 
 func (f *fakeSchedulerAPI) CreateSchedule(_ context.Context, params *scheduler.CreateScheduleInput, _ ...func(*scheduler.Options)) (*scheduler.CreateScheduleOutput, error) {
@@ -148,4 +160,36 @@ func (f *fakeSchedulerAPI) createScheduleCalls() []*scheduler.CreateScheduleInpu
 	out := make([]*scheduler.CreateScheduleInput, len(f.calls))
 	copy(out, f.calls)
 	return out
+}
+
+func (f *fakeSchedulerAPI) ListSchedules(_ context.Context, params *scheduler.ListSchedulesInput, _ ...func(*scheduler.Options)) (*scheduler.ListSchedulesOutput, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	prefix := aws.ToString(params.NamePrefix)
+
+	var summaries []types.ScheduleSummary
+	seen := make(map[string]bool)
+	for _, c := range f.calls {
+		name := aws.ToString(c.Name)
+		if name == "" || seen[name] || f.deleted[name] {
+			continue
+		}
+		if prefix != "" && !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		seen[name] = true
+		summaries = append(summaries, types.ScheduleSummary{Name: aws.String(name)})
+	}
+	return &scheduler.ListSchedulesOutput{Schedules: summaries}, nil
+}
+
+func (f *fakeSchedulerAPI) DeleteSchedule(_ context.Context, params *scheduler.DeleteScheduleInput, _ ...func(*scheduler.Options)) (*scheduler.DeleteScheduleOutput, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.deleted == nil {
+		f.deleted = make(map[string]bool)
+	}
+	f.deleted[aws.ToString(params.Name)] = true
+	return &scheduler.DeleteScheduleOutput{}, nil
 }

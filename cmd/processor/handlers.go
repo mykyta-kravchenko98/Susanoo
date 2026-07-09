@@ -21,12 +21,11 @@ const (
 
 	// callbackRequestPDFPrefix and callbackDeleteLetterPrefix are followed
 	// directly by a letter_id (e.g. "pdf:3f9c..."), mirroring
-	// callbackViewLetterPrefix in commands.go. callbackRequestPDFPrefix is
-	// handled by handleRequestPDF (archive.go); callbackDeleteLetterPrefix's
-	// handler is still pending (a later PR) - until then it falls through to
-	// the "unknown callback data" default below.
-	callbackRequestPDFPrefix   = "pdf:"
-	callbackDeleteLetterPrefix = "delete:"
+	// callbackViewLetterPrefix in commands.go. Handled by handleRequestPDF
+	// and handleDeleteLetter respectively (both in archive.go).
+	callbackRequestPDFPrefix     = "pdf:"
+	callbackDeleteLetterPrefix   = "delete:"
+	callbackCancelReminderPrefix = "cancelrem:"
 )
 
 func (a *App) Handle(ctx context.Context, sqsEvent events.SQSEvent) error {
@@ -113,6 +112,10 @@ func (a *App) handleCallback(ctx context.Context, cb *telegram.CallbackQuery) er
 		letterID := strings.TrimPrefix(cb.Data, callbackRequestPDFPrefix)
 		return a.handleRequestPDF(ctx, chatID, letterID)
 
+	case strings.HasPrefix(cb.Data, callbackDeleteLetterPrefix):
+		letterID := strings.TrimPrefix(cb.Data, callbackDeleteLetterPrefix)
+		return a.handleDeleteLetter(ctx, chatID, letterID)
+
 	case strings.HasPrefix(cb.Data, callbackArchiveOrgPrefix):
 		orgSlug := strings.TrimPrefix(cb.Data, callbackArchiveOrgPrefix)
 		return a.handleArchiveOrg(ctx, chatID, orgSlug)
@@ -120,9 +123,9 @@ func (a *App) handleCallback(ctx context.Context, cb *telegram.CallbackQuery) er
 	case strings.HasPrefix(cb.Data, callbackArchiveYearPrefix):
 		return a.handleArchiveYearCallback(ctx, chatID, strings.TrimPrefix(cb.Data, callbackArchiveYearPrefix))
 
-	case strings.HasPrefix(cb.Data, callbackDeleteLetterPrefix):
-		letterID := strings.TrimPrefix(cb.Data, callbackDeleteLetterPrefix)
-		return a.handleDeleteLetter(ctx, chatID, letterID)
+	case strings.HasPrefix(cb.Data, callbackCancelReminderPrefix):
+		name := strings.TrimPrefix(cb.Data, callbackCancelReminderPrefix)
+		return a.handleCancelReminder(ctx, chatID, name)
 
 	default:
 		a.logger.WarnContext(ctx, "unknown callback data", slog.String("data", cb.Data))
