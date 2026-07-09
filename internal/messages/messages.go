@@ -48,9 +48,14 @@ const (
 	// (either none confirmed yet, or all currently pending deletion).
 	ArchiveEmpty = "You don't have any saved letters yet."
 
-	// ArchiveHeader precedes the list of one-button-per-letter rows sent by
-	// /archive.
+	// ArchiveHeader precedes /archive's drill-down list rows - reused at
+	// every level (organizations, then a given organization's letters) since
+	// "here's what I found" reads fine regardless of which level it is.
 	ArchiveHeader = "Your saved letters:"
+
+	// ArchiveYearsHeader precedes the list of year buttons shown after
+	// tapping an organization in /archive.
+	ArchiveYearsHeader = "Pick a year:"
 
 	// LetterNotFound covers both a genuinely missing letter_id and a letter
 	// that's currently pending deletion - from the user's point of view
@@ -159,6 +164,18 @@ const maxButtonLabelRunes = 60
 // organization/doc type combination runs long.
 func LetterButtonLabel(receivedDate, organization, docType string) string {
 	label := fmt.Sprintf("%s · %s — %s", receivedDate, organization, docType)
+
+	runes := []rune(label)
+	if len(runes) > maxButtonLabelRunes {
+		label = string(runes[:maxButtonLabelRunes-1]) + "…"
+	}
+	return label
+}
+
+// OrganizationButtonLabel formats one row of /archive's top-level
+// organization list, e.g. "Finanzamt Berlin (3)".
+func OrganizationButtonLabel(name string, count int) string {
+	label := fmt.Sprintf("%s (%d)", name, count)
 
 	runes := []rune(label)
 	if len(runes) > maxButtonLabelRunes {

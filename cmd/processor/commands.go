@@ -44,30 +44,43 @@ func allCommands() []commandSpec {
 	}
 }
 
-// archiveListLimit caps how many letters /archive shows at once. Each letter
-// is one button/row, and a Telegram message can't usefully carry hundreds of
-// rows - at this project's real volume (dozens of letters/month) a single
-// page comfortably covers everything relevant. Pagination is tracked as
-// backlog if that ever stops being true.
-const archiveListLimit = 20
-
 const callbackViewLetterPrefix = "view:"
 
+// callbackArchiveOrgPrefix marks callback data as "show years for this
+// organization" - followed by the organization's slug (see
+// letters.SanitizeForKey / letters.OrganizationSummary.Slug), e.g.
+// "archorg:finanzamt-berlin". Slugs are already lowercase ASCII with no
+// colons, so appending one directly after the prefix is unambiguous to
+// parse back out (see handleArchiveOrg in handlers.go).
+const callbackArchiveOrgPrefix = "archorg:"
+
+// callbackArchiveYearPrefix marks callback data as "show letters for this
+// organization+year" - followed by "{org_slug}:{year}", e.g.
+// "archyr:finanzamt-berlin:2026". The colon separator is safe because a
+// slug never contains one (see letters.SanitizeForKey).
+const callbackArchiveYearPrefix = "archyr:"
+
+// handleArchiveCommand is the top of /archive's organization -> year ->
+// letter drill-down: it lists the chat's distinct organizations. Tapping one
+// leads to handleArchiveOrg, then handleArchiveYear, then the existing
+// letter-view flow (callbackViewLetterPrefix). All three levels are
+// stateless - each callback carries everything needed to answer it, nothing
+// is remembered between taps.
 func handleArchiveCommand(ctx context.Context, a *App, msg *telegram.Message, _ []string) error {
-	list, err := a.letters.Query(ctx, msg.Chat.ID, archiveListLimit)
+	orgs, err := a.letters.QueryOrganizations(ctx, msg.Chat.ID)
 	if err != nil {
 		return err
 	}
 
-	if len(list) == 0 {
+	if len(orgs) == 0 {
 		return a.telegramClient.SendMessage(ctx, msg.Chat.ID, messages.ArchiveEmpty)
 	}
 
-	rows := make([][]telegram.InlineButton, 0, len(list))
-	for _, letter := range list {
-		label := messages.LetterButtonLabel(letter.ReceivedDate, letter.Organization, letter.DocType)
+	rows := make([][]telegram.InlineButton, 0, len(orgs))
+	for _, org := range orgs {
+		label := messages.OrganizationButtonLabel(org.Name, org.Count)
 		rows = append(rows, []telegram.InlineButton{
-			{Text: label, CallbackData: callbackViewLetterPrefix + letter.LetterID},
+			{Text: label, CallbackData: callbackArchiveOrgPrefix + org.Slug},
 		})
 	}
 
