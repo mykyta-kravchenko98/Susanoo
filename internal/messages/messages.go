@@ -65,9 +65,20 @@ const (
 
 	ButtonRequestPDF   = "📎 Request PDF"
 	ButtonDeleteLetter = "🗑 Delete"
-	PDFRequestFailed   = "Couldn't send that PDF right now. Please try again in a moment."
-	LetterDeleted      = "Deleted. 🗑"
-	DeleteFailed       = "Couldn't delete that letter right now. Please try again in a moment."
+
+	PDFRequestFailed = "Couldn't send that PDF right now. Please try again in a moment."
+
+	LetterDeleted = "Deleted. 🗑"
+
+	DeleteFailed = "Couldn't delete that letter right now. Please try again in a moment."
+
+	RemindersEmpty = "You don't have any pending reminders."
+
+	RemindersHeader = "Pending reminders:"
+
+	ReminderCancelled = "Reminder cancelled."
+
+	ReminderCancelFailed = "Couldn't cancel that reminder right now. Please try again in a moment."
 )
 
 func PhotoAdded(pageCount int) string {
@@ -179,6 +190,30 @@ func LetterButtonLabel(receivedDate, organization, docType string) string {
 // organization list, e.g. "Finanzamt Berlin (3)".
 func OrganizationButtonLabel(name string, count int) string {
 	label := fmt.Sprintf("%s (%d)", name, count)
+
+	runes := []rune(label)
+	if len(runes) > maxButtonLabelRunes {
+		label = string(runes[:maxButtonLabelRunes-1]) + "…"
+	}
+	return label
+}
+
+var reminderKindShortLabel = map[string]string{
+	"advance_7d": "7 days before",
+	"advance_3d": "3 days before",
+	"advance_1d": "1 day before",
+	"due_day":    "on due date",
+}
+
+// ReminderButtonLabel formats one row of /reminders' cancel list, e.g.
+// "Finanzamt Berlin — Steuerbescheid (7 days before, due 2026-07-15)".
+func ReminderButtonLabel(organization, docType, deadline, kind string) string {
+	timing, ok := reminderKindShortLabel[kind]
+	if !ok {
+		timing = "reminder"
+	}
+
+	label := fmt.Sprintf("%s — %s (%s, due %s)", organization, docType, timing, deadline)
 
 	runes := []rune(label)
 	if len(runes) > maxButtonLabelRunes {

@@ -3,7 +3,9 @@ package reminders
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/scheduler"
@@ -24,6 +26,8 @@ type Payload struct {
 
 type SchedulerAPI interface {
 	CreateSchedule(ctx context.Context, params *scheduler.CreateScheduleInput, optFns ...func(*scheduler.Options)) (*scheduler.CreateScheduleOutput, error)
+	ListSchedules(ctx context.Context, params *scheduler.ListSchedulesInput, optFns ...func(*scheduler.Options)) (*scheduler.ListSchedulesOutput, error)
+	DeleteSchedule(ctx context.Context, params *scheduler.DeleteScheduleInput, optFns ...func(*scheduler.Options)) (*scheduler.DeleteScheduleOutput, error)
 }
 
 type Scheduler struct {
@@ -83,6 +87,48 @@ func (s *Scheduler) ScheduleAll(ctx context.Context, letterID string, base Paylo
 		if err != nil {
 			return fmt.Errorf("create schedule %s: %w", name, err)
 		}
+	}
+	return nil
+}
+
+type ScheduledReminder struct {
+	LetterID string
+	Kind     string
+	Name     string
+}
+
+func (s *Scheduler) ListForLetter(ctx context.Context, letterID string) ([]ScheduledReminder, error) {
+	out, err := s.client.ListSchedules(ctx, &scheduler.ListSchedulesInput{
+		GroupName:  aws.String(s.groupName),
+		NamePrefix: aws.String(letterID + "-"),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list schedules for letter %s: %w", letterID, err)
+	}
+
+	result := make([]ScheduledReminder, 0, len(out.Schedules))
+	for _, item := range out.Schedules {
+		name := aws.ToString(item.Name)
+		result = append(result, ScheduledReminder{
+			LetterID: letterID,
+			Kind:     strings.TrimPrefix(name, letterID+"-"),
+			Name:     name,
+		})
+	}
+	return result, nil
+}
+
+func (s *Scheduler) Cancel(ctx context.Context, name string) error {
+	_, err := s.client.DeleteSchedule(ctx, &scheduler.DeleteScheduleInput{
+		Name:      aws.String(name),
+		GroupName: aws.String(s.groupName),
+	})
+	if err != nil {
+		var notFound *types.ResourceNotFoundException
+		if errors.As(err, &notFound) {
+			return nil
+		}
+		return fmt.Errorf("delete schedule %s: %w", name, err)
 	}
 	return nil
 }
