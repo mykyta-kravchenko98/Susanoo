@@ -66,6 +66,8 @@ const (
 	ButtonRequestPDF   = "📎 Request PDF"
 	ButtonDeleteLetter = "🗑 Delete"
 	PDFRequestFailed   = "Couldn't send that PDF right now. Please try again in a moment."
+	LetterDeleted      = "Deleted. 🗑"
+	DeleteFailed       = "Couldn't delete that letter right now. Please try again in a moment."
 )
 
 func PhotoAdded(pageCount int) string {

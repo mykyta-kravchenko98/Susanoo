@@ -120,6 +120,10 @@ func (a *App) handleCallback(ctx context.Context, cb *telegram.CallbackQuery) er
 	case strings.HasPrefix(cb.Data, callbackArchiveYearPrefix):
 		return a.handleArchiveYearCallback(ctx, chatID, strings.TrimPrefix(cb.Data, callbackArchiveYearPrefix))
 
+	case strings.HasPrefix(cb.Data, callbackDeleteLetterPrefix):
+		letterID := strings.TrimPrefix(cb.Data, callbackDeleteLetterPrefix)
+		return a.handleDeleteLetter(ctx, chatID, letterID)
+
 	default:
 		a.logger.WarnContext(ctx, "unknown callback data", slog.String("data", cb.Data))
 		return nil
