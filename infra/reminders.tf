@@ -154,6 +154,11 @@ resource "aws_iam_role_policy" "processor_scheduler" {
       },
       {
         Effect   = "Allow"
+        Action   = ["scheduler:ListSchedules"]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
         Action   = ["iam:PassRole"]
         Resource = aws_iam_role.scheduler_execution.arn
         Condition = {
