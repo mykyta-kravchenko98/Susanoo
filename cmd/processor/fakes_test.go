@@ -19,21 +19,35 @@ type sentMessage struct {
 	rows    [][]telegram.InlineButton
 }
 
+type sentDocument struct {
+	chatID   int64
+	filename string
+	data     []byte
+}
+
 // fakeTelegramClient satisfies the TelegramClient interface without making
 // any network calls. It records every SendMessage call so tests can assert on
 // what the user would have seen, and returns canned data for
 // GetFilePath/DownloadFile.
 type fakeTelegramClient struct {
-	mu       sync.Mutex
-	sent     []sentMessage
-	filePath string
-	fileData []byte
+	mu        sync.Mutex
+	sent      []sentMessage
+	documents []sentDocument
+	filePath  string
+	fileData  []byte
 }
 
 func (f *fakeTelegramClient) SendMessage(_ context.Context, chatID int64, text string, buttons ...telegram.InlineButton) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sent = append(f.sent, sentMessage{chatID: chatID, text: text, buttons: buttons})
+	return nil
+}
+
+func (f *fakeTelegramClient) SendDocument(_ context.Context, chatID int64, filename string, data []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.documents = append(f.documents, sentDocument{chatID: chatID, filename: filename, data: data})
 	return nil
 }
 

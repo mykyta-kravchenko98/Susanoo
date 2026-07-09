@@ -25,6 +25,7 @@ import (
 type TelegramClient interface {
 	SendMessage(ctx context.Context, chatID int64, text string, buttons ...telegram.InlineButton) error
 	SendMessageWithRows(ctx context.Context, chatID int64, text string, rows [][]telegram.InlineButton) error
+	SendDocument(ctx context.Context, chatID int64, filename string, data []byte) error
 	GetFilePath(ctx context.Context, fileID string) (string, error)
 	DownloadFile(ctx context.Context, filePath string) ([]byte, error)
 	AnswerCallbackQuery(ctx context.Context, callbackQueryID string) error

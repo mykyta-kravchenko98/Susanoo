@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/mykyta-kravchenko98/Susanoo/internal/helper"
@@ -183,6 +185,45 @@ func (c *Client) SetMyCommands(ctx context.Context, commands []BotCommand) error
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("setMyCommands failed: status %d, body: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+func (c *Client) SendDocument(ctx context.Context, chatID int64, filename string, data []byte) error {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	if err := writer.WriteField("chat_id", strconv.FormatInt(chatID, 10)); err != nil {
+		return fmt.Errorf("write chat_id field: %w", err)
+	}
+
+	part, err := writer.CreateFormFile("document", filename)
+	if err != nil {
+		return fmt.Errorf("create document form file: %w", err)
+	}
+	if _, err := part.Write(data); err != nil {
+		return fmt.Errorf("write document bytes: %w", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("close multipart writer: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiURL("sendDocument"), &body)
+	if err != nil {
+		return fmt.Errorf("build sendDocument request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("call sendDocument: %w", err)
+	}
+	defer helper.Close(c.logger, resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("sendDocument failed: status %d, body: %s", resp.StatusCode, string(respBody))
 	}
 	return nil
 }
