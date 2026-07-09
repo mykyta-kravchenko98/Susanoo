@@ -86,9 +86,9 @@ func handleRemindersCommand(ctx context.Context, a *App, msg *telegram.Message, 
 		}
 
 		for _, r := range pending {
-			label := messages.ReminderButtonLabel(letter.Organization, letter.DocType, letter.Deadline, r.Kind)
+			label := messages.ReminderListLabel(letter.Organization, r.Kind)
 			rows = append(rows, []telegram.InlineButton{
-				{Text: label, CallbackData: callbackCancelReminderPrefix + r.Name},
+				{Text: label, CallbackData: callbackViewReminderPrefix + r.Name},
 			})
 		}
 	}

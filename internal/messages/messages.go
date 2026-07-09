@@ -79,6 +79,8 @@ const (
 	ReminderCancelled = "Reminder cancelled."
 
 	ReminderCancelFailed = "Couldn't cancel that reminder right now. Please try again in a moment."
+
+	ButtonCancelReminder = "❌ Cancel reminder"
 )
 
 func PhotoAdded(pageCount int) string {
@@ -198,6 +200,11 @@ func OrganizationButtonLabel(name string, count int) string {
 	return label
 }
 
+// reminderKindShortLabel maps a reminders.ReminderKind to compact text for
+// /reminders - distinct from reminderLeadIn above, which is a full headline
+// meant for the fired-reminder message itself, not a list row or detail
+// view. Keys match the ReminderKind constants in internal/reminders/plan.go
+// — keep them in sync.
 var reminderKindShortLabel = map[string]string{
 	"advance_7d": "7 days before",
 	"advance_3d": "3 days before",
@@ -205,21 +212,43 @@ var reminderKindShortLabel = map[string]string{
 	"due_day":    "on due date",
 }
 
-// ReminderButtonLabel formats one row of /reminders' cancel list, e.g.
-// "Finanzamt Berlin — Steuerbescheid (7 days before, due 2026-07-15)".
-func ReminderButtonLabel(organization, docType, deadline, kind string) string {
-	timing, ok := reminderKindShortLabel[kind]
-	if !ok {
-		timing = "reminder"
+func reminderTiming(kind string) string {
+	if label, ok := reminderKindShortLabel[kind]; ok {
+		return label
 	}
+	return "reminder"
+}
 
-	label := fmt.Sprintf("%s — %s (%s, due %s)", organization, docType, timing, deadline)
+// ReminderListLabel formats one row of /reminders' top-level list, e.g.
+// "7 days before — Finanzamt Berlin". Deliberately terse (timing + org only,
+// no doc type/deadline) so tapping it is obviously "go look at this
+// reminder," not something a user would assume acts on it directly - the
+// full detail is one tap away via ReminderDetail, which is also where the
+// actual "Cancel" button lives.
+func ReminderListLabel(organization, kind string) string {
+	label := fmt.Sprintf("%s — %s", reminderTiming(kind), organization)
 
 	runes := []rune(label)
 	if len(runes) > maxButtonLabelRunes {
 		label = string(runes[:maxButtonLabelRunes-1]) + "…"
 	}
 	return label
+}
+
+// ReminderDetail renders the message shown after tapping a reminder from
+// /reminders' list (see handleViewReminder) - the only place the actual
+// "Cancel reminder" button appears, so cancelling is always a deliberate
+// second tap rather than something that happens on the list row itself.
+// Unlike ReminderListLabel this isn't button text, so there's no length
+// limit to truncate against.
+func ReminderDetail(organization, docType, deadline, kind string) string {
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "⏰ %s\n", reminderTiming(kind))
+	fmt.Fprintf(&b, "📄 %s — %s\n", docType, organization)
+	fmt.Fprintf(&b, "Deadline: %s\n", deadline)
+
+	return b.String()
 }
 
 // LetterDetail renders the message shown when a letter is opened from

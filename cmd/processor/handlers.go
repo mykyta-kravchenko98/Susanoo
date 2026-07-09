@@ -25,6 +25,7 @@ const (
 	// and handleDeleteLetter respectively (both in archive.go).
 	callbackRequestPDFPrefix     = "pdf:"
 	callbackDeleteLetterPrefix   = "delete:"
+	callbackViewReminderPrefix   = "remview:"
 	callbackCancelReminderPrefix = "cancelrem:"
 )
 
@@ -122,6 +123,10 @@ func (a *App) handleCallback(ctx context.Context, cb *telegram.CallbackQuery) er
 
 	case strings.HasPrefix(cb.Data, callbackArchiveYearPrefix):
 		return a.handleArchiveYearCallback(ctx, chatID, strings.TrimPrefix(cb.Data, callbackArchiveYearPrefix))
+
+	case strings.HasPrefix(cb.Data, callbackViewReminderPrefix):
+		name := strings.TrimPrefix(cb.Data, callbackViewReminderPrefix)
+		return a.handleViewReminder(ctx, chatID, name)
 
 	case strings.HasPrefix(cb.Data, callbackCancelReminderPrefix):
 		name := strings.TrimPrefix(cb.Data, callbackCancelReminderPrefix)
