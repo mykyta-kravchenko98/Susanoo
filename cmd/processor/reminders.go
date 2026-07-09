@@ -7,7 +7,30 @@ import (
 	"strings"
 
 	"github.com/mykyta-kravchenko98/Susanoo/internal/messages"
+	"github.com/mykyta-kravchenko98/Susanoo/internal/telegram"
 )
+
+func (a *App) handleViewReminder(ctx context.Context, chatID int64, name string) error {
+	letterID, kind, ok := strings.Cut(name, "-")
+	if !ok {
+		a.logger.WarnContext(ctx, "malformed view-reminder callback data", slog.String("data", name))
+		return nil
+	}
+
+	letter, err := a.getOwnedLetter(ctx, chatID, letterID)
+	if err != nil {
+		return err
+	}
+	if letter == nil {
+		return a.telegramClient.SendMessage(ctx, chatID, messages.LetterNotFound)
+	}
+
+	text := messages.ReminderDetail(letter.Organization, letter.DocType, letter.Deadline, kind)
+
+	return a.telegramClient.SendMessage(ctx, chatID, text,
+		telegram.InlineButton{Text: messages.ButtonCancelReminder, CallbackData: callbackCancelReminderPrefix + name},
+	)
+}
 
 func (a *App) handleCancelReminder(ctx context.Context, chatID int64, name string) error {
 	letterID, _, ok := strings.Cut(name, "-")
