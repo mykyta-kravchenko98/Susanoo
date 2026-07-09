@@ -7,11 +7,14 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mykyta-kravchenko98/Susanoo/internal/letters"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/messages"
 	"github.com/mykyta-kravchenko98/Susanoo/internal/telegram"
 )
+
+const pendingDeletionGracePeriod = 30 * 24 * time.Hour
 
 func (a *App) getOwnedLetter(ctx context.Context, chatID int64, letterID string) (*letters.Letter, error) {
 	letter, err := a.letters.Get(ctx, letterID)
@@ -155,4 +158,33 @@ func (a *App) handleArchiveYear(ctx context.Context, chatID int64, orgSlug strin
 	}
 
 	return a.telegramClient.SendMessageWithRows(ctx, chatID, messages.ArchiveHeader, rows)
+}
+
+func (a *App) handleDeleteLetter(ctx context.Context, chatID int64, letterID string) error {
+	letter, err := a.getOwnedLetter(ctx, chatID, letterID)
+	if err != nil {
+		return err
+	}
+	if letter == nil {
+		return a.telegramClient.SendMessage(ctx, chatID, messages.LetterNotFound)
+	}
+
+	pendingKey := fmt.Sprintf("PendingDeletion/%d/%s.pdf", chatID, letter.LetterID)
+	if err := a.docs.Move(ctx, letter.S3Key, pendingKey); err != nil {
+		if sendErr := a.telegramClient.SendMessage(ctx, chatID, messages.DeleteFailed); sendErr != nil {
+			a.logger.WarnContext(ctx, "failed to send delete-failed notice", slog.String("error", sendErr.Error()))
+		}
+		return fmt.Errorf("move pdf to pending-deletion for letter %s: %w", letterID, err)
+	}
+
+	expiresAt := time.Now().UTC().Add(pendingDeletionGracePeriod)
+	if err := a.letters.MarkPendingDeletion(ctx, letterID, pendingKey, expiresAt); err != nil {
+		if sendErr := a.telegramClient.SendMessage(ctx, chatID, messages.DeleteFailed); sendErr != nil {
+			a.logger.WarnContext(ctx, "failed to send delete-failed notice", slog.String("error", sendErr.Error()))
+		}
+		return fmt.Errorf("mark letter %s pending deletion after moving pdf from %s to %s: %w",
+			letterID, letter.S3Key, pendingKey, err)
+	}
+
+	return a.telegramClient.SendMessage(ctx, chatID, messages.LetterDeleted)
 }

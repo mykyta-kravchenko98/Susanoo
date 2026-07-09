@@ -169,19 +169,20 @@ func (s *Store) Query(ctx context.Context, chatID int64, limit int32) ([]Letter,
 	return result, nil
 }
 
-func (s *Store) MarkPendingDeletion(ctx context.Context, letterID string, expiresAt time.Time) error {
+func (s *Store) MarkPendingDeletion(ctx context.Context, letterID, newS3Key string, expiresAt time.Time) error {
 	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: &s.tableName,
 		Key: map[string]types.AttributeValue{
 			"letter_id": &types.AttributeValueMemberS{Value: letterID},
 		},
-		UpdateExpression: aws.String("SET #status = :status, expires_at = :expires_at"),
+		UpdateExpression: aws.String("SET #status = :status, expires_at = :expires_at, s3_key = :s3_key"),
 		ExpressionAttributeNames: map[string]string{
 			"#status": "status",
 		},
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":status":     &types.AttributeValueMemberS{Value: string(StatusPendingDeletion)},
 			":expires_at": &types.AttributeValueMemberN{Value: strconv.FormatInt(expiresAt.Unix(), 10)},
+			":s3_key":     &types.AttributeValueMemberS{Value: newS3Key},
 		},
 	})
 	if err != nil {
