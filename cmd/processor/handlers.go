@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -160,6 +160,13 @@ func (a *App) handleCallback(ctx context.Context, cb *telegram.CallbackQuery) er
 		letterID := strings.TrimPrefix(cb.Data, callbackViewLetterPrefix)
 		return a.handleViewLetter(ctx, chatID, letterID)
 
+	case strings.HasPrefix(cb.Data, callbackArchiveOrgPrefix):
+		orgSlug := strings.TrimPrefix(cb.Data, callbackArchiveOrgPrefix)
+		return a.handleArchiveOrg(ctx, chatID, orgSlug)
+
+	case strings.HasPrefix(cb.Data, callbackArchiveYearPrefix):
+		return a.handleArchiveYearCallback(ctx, chatID, strings.TrimPrefix(cb.Data, callbackArchiveYearPrefix))
+
 	default:
 		a.logger.WarnContext(ctx, "unknown callback data", slog.String("data", cb.Data))
 		return nil
@@ -194,6 +201,77 @@ func (a *App) handleViewLetter(ctx context.Context, chatID int64, letterID strin
 		telegram.InlineButton{Text: messages.ButtonRequestPDF, CallbackData: callbackRequestPDFPrefix + letter.LetterID},
 		telegram.InlineButton{Text: messages.ButtonDeleteLetter, CallbackData: callbackDeleteLetterPrefix + letter.LetterID},
 	)
+}
+
+// handleArchiveOrg is /archive's second level: it shows the years the chat
+// has letters from one organization (see callbackArchiveOrgPrefix in
+// commands.go). Tapping a year leads to handleArchiveYearCallback below.
+func (a *App) handleArchiveOrg(ctx context.Context, chatID int64, orgSlug string) error {
+	years, err := a.letters.QueryYears(ctx, chatID, orgSlug)
+	if err != nil {
+		return fmt.Errorf("query years for org %s: %w", orgSlug, err)
+	}
+
+	if len(years) == 0 {
+		return a.telegramClient.SendMessage(ctx, chatID, messages.ArchiveEmpty)
+	}
+
+	rows := make([][]telegram.InlineButton, 0, len(years))
+	for _, year := range years {
+		rows = append(rows, []telegram.InlineButton{
+			{
+				Text:         strconv.Itoa(year),
+				CallbackData: fmt.Sprintf("%s%s:%d", callbackArchiveYearPrefix, orgSlug, year),
+			},
+		})
+	}
+
+	return a.telegramClient.SendMessageWithRows(ctx, chatID, messages.ArchiveYearsHeader, rows)
+}
+
+// handleArchiveYearCallback parses the "{org_slug}:{year}" payload from a
+// callbackArchiveYearPrefix callback and delegates to handleArchiveYear. Kept
+// separate from handleArchiveYear itself so the parsing/validation (which
+// can fail on malformed data) is isolated from the actual query+render logic.
+func (a *App) handleArchiveYearCallback(ctx context.Context, chatID int64, rest string) error {
+	orgSlug, yearStr, ok := strings.Cut(rest, ":")
+	if !ok {
+		a.logger.WarnContext(ctx, "malformed archive-year callback data", slog.String("data", rest))
+		return nil
+	}
+
+	year, err := strconv.Atoi(yearStr)
+	if err != nil {
+		a.logger.WarnContext(ctx, "malformed year in archive-year callback data", slog.String("data", rest))
+		return nil
+	}
+
+	return a.handleArchiveYear(ctx, chatID, orgSlug, year)
+}
+
+// handleArchiveYear is /archive's third and final level: the organization's
+// letters from one specific year, each as its own button leading into the
+// existing handleViewLetter flow (callbackViewLetterPrefix) - the same
+// per-letter view the original flat /archive list used.
+func (a *App) handleArchiveYear(ctx context.Context, chatID int64, orgSlug string, year int) error {
+	list, err := a.letters.QueryByOrgYear(ctx, chatID, orgSlug, year)
+	if err != nil {
+		return fmt.Errorf("query letters for org %s year %d: %w", orgSlug, year, err)
+	}
+
+	if len(list) == 0 {
+		return a.telegramClient.SendMessage(ctx, chatID, messages.ArchiveEmpty)
+	}
+
+	rows := make([][]telegram.InlineButton, 0, len(list))
+	for _, letter := range list {
+		label := messages.LetterButtonLabel(letter.ReceivedDate, letter.Organization, letter.DocType)
+		rows = append(rows, []telegram.InlineButton{
+			{Text: label, CallbackData: callbackViewLetterPrefix + letter.LetterID},
+		})
+	}
+
+	return a.telegramClient.SendMessageWithRows(ctx, chatID, messages.ArchiveHeader, rows)
 }
 
 func (a *App) handleDone(ctx context.Context, chatID int64) error {
@@ -317,8 +395,8 @@ func (a *App) handleConfirmSave(ctx context.Context, chatID int64) error {
 	}
 
 	now := time.Now().UTC()
-	safeOrg := sanitizeForKey(fields.Organization)
-	safeFilename := sanitizeForKey(fields.Filename)
+	safeOrg := letters.SanitizeForKey(fields.Organization)
+	safeFilename := letters.SanitizeForKey(fields.Filename)
 	finalKey := fmt.Sprintf("%d/%s/%d/%02d/%s.pdf", chatID, safeOrg, now.Year(), now.Month(), safeFilename)
 
 	if err := a.docs.Move(ctx, sess.PDFKey, finalKey); err != nil {
@@ -398,16 +476,4 @@ func (a *App) handleConfirmSave(ctx context.Context, chatID int64) error {
 	)
 
 	return a.telegramClient.SendMessage(ctx, chatID, messages.LetterSaved)
-}
-
-var unsafeKeyChars = regexp.MustCompile(`[^a-z0-9\-_]+`)
-
-func sanitizeForKey(s string) string {
-	lower := strings.ToLower(strings.TrimSpace(s))
-	safe := unsafeKeyChars.ReplaceAllString(lower, "-")
-	safe = strings.Trim(safe, "-")
-	if safe == "" {
-		return "unsorted"
-	}
-	return safe
 }
